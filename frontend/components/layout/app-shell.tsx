@@ -3,13 +3,16 @@
 import { Activity, ArrowUpRight, CircleHelp, Gauge, Menu, Settings2, X } from "lucide-react";
 import * as React from "react";
 import Link from "next/link";
-import { navigationItems } from "@/constants/navigation";
+import { usePathname } from "next/navigation";
+import { Toaster } from "sonner";
+import { navigationGroups, pageMetadata } from "@/constants/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DashboardHeader } from "@/components/shared/dashboard-header";
 
 function Wordmark() {
   return (
-    <Link href="#overview" className="group inline-flex items-center gap-3" aria-label="APS Intelligence home">
+    <Link href="/" className="group inline-flex items-center gap-3" aria-label="APS Intelligence dashboard">
       <span className="flex size-9 items-center justify-center bg-signal text-white transition-transform group-hover:rotate-12">
         <Gauge aria-hidden="true" className="size-5" strokeWidth={1.6} />
       </span>
@@ -27,6 +30,8 @@ interface SidebarProps {
 }
 
 function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+  const pathname = usePathname();
+
   return (
     <aside
       className={`fixed inset-y-0 left-0 z-40 flex w-[min(84vw,20rem)] shrink-0 flex-col border-r border-line bg-surface px-6 py-7 transition-transform duration-200 lg:static lg:w-64 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
@@ -41,30 +46,43 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       >
         <X aria-hidden="true" className="size-4" />
       </button>
-      <div className="mt-14">
-        <p className="mb-4 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">Workspace</p>
-        <nav aria-label="Primary navigation" className="space-y-1">
-          {navigationItems.map((item, index) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`group flex items-center gap-3 border-l px-3 py-2.5 text-sm transition-colors ${
-                index === 0 ? "border-signal text-ink" : "border-transparent text-muted hover:border-line-strong hover:text-ink"
-              }`}
-              onClick={onClose}
-            >
-              <span className="font-mono text-[10px] text-muted">{item.index}</span>
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-      </div>
+
+      <nav aria-label="Primary navigation" className="mt-14 space-y-7">
+        {navigationGroups.map((group) => (
+          <div key={group.label}>
+            <p className="mb-3 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">{group.label}</p>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`group flex items-center gap-3 border-l px-3 py-2.5 text-sm transition-colors ${
+                      isActive ? "border-signal bg-canvas-deep/70 text-ink" : "border-transparent text-muted hover:border-line-strong hover:bg-canvas-deep/45 hover:text-ink"
+                    }`}
+                    onClick={onClose}
+                  >
+                    <span className="font-mono text-[10px] text-muted">{item.index}</span>
+                    <Icon aria-hidden="true" className={`size-4 ${isActive ? "text-signal" : "text-muted"}`} strokeWidth={1.6} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
       <div className="mt-auto border-t border-line pt-5">
         <div className="flex items-center justify-between text-xs text-muted">
           <span className="inline-flex items-center gap-2">
-            <span className="size-1.5 bg-success" /> API connected
+            <span className="size-1.5 rounded-full bg-success" /> Demo service
           </span>
-          <span className="font-mono text-[10px]">v0.1</span>
+          <span className="font-mono text-[10px]">v0.2</span>
         </div>
         <div className="mt-4 flex gap-2">
           <Button aria-label="Help" size="icon" variant="ghost">
@@ -79,36 +97,17 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   );
 }
 
-interface TopBarProps {
-  onOpen: () => void;
+interface AppShellProps {
+  children: React.ReactNode;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  lastUpdated?: string;
 }
 
-function TopBar({ onOpen }: TopBarProps) {
-  return (
-    <header className="flex items-center justify-between border-b border-line bg-canvas px-5 py-4 sm:px-8 lg:px-10">
-      <div className="flex items-center gap-3 lg:hidden">
-        <Wordmark />
-      </div>
-      <div className="hidden items-center gap-3 text-xs text-muted sm:flex">
-        <Activity aria-hidden="true" className="size-4 text-signal" />
-        <span>Reliability workspace</span>
-        <span className="text-line-strong">/</span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em]">Design system preview</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <Badge variant="success">
-          <span className="size-1.5 bg-success" /> Live API
-        </Badge>
-         <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={onOpen}>
-          <Menu aria-hidden="true" className="size-4" />
-        </Button>
-      </div>
-    </header>
-  );
-}
-
-function AppShell({ children }: { children: React.ReactNode }) {
+function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Demo snapshot / static" }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const pathname = usePathname();
+  const metadata = pageMetadata[pathname] ?? pageMetadata["/"];
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -123,18 +122,43 @@ function AppShell({ children }: { children: React.ReactNode }) {
           />
         ) : null}
         <div className="min-w-0 flex-1">
-          <TopBar onOpen={() => setMobileOpen(true)} />
+          <header className="flex items-center justify-between border-b border-line bg-canvas px-5 py-4 sm:px-8 lg:px-10">
+            <div className="flex items-center gap-3 lg:hidden">
+              <Wordmark />
+            </div>
+            <div className="hidden items-center gap-3 text-xs text-muted sm:flex">
+              <Activity aria-hidden="true" className="size-4 text-signal" />
+              <span>Reliability workspace</span>
+              <span className="text-line-strong">/</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em]">Phase 02 / overview</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local preview</Badge>
+              <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
+                <Menu aria-hidden="true" className="size-4" />
+              </Button>
+            </div>
+          </header>
+          <DashboardHeader
+            eyebrow={metadata.eyebrow}
+            title={metadata.title}
+            description={metadata.description}
+            lastUpdated={lastUpdated}
+            isRefreshing={isRefreshing}
+            onRefresh={onRefresh}
+          />
           <main>{children}</main>
           <footer className="border-t border-line px-5 py-6 sm:px-8 lg:px-10">
             <div className="flex flex-col gap-3 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-              <span>APS Intelligence / Industrial failure prediction &amp; reliability analytics</span>
+              <span>APS Intelligence / industrial failure prediction &amp; reliability analytics</span>
               <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em]">
-                Scania APS dataset <ArrowUpRight aria-hidden="true" className="size-3" />
+                Scania APS / demo snapshot <ArrowUpRight aria-hidden="true" className="size-3" />
               </span>
             </div>
           </footer>
         </div>
       </div>
+      <Toaster position="bottom-right" toastOptions={{ classNames: { toast: "border-line bg-surface text-ink", title: "font-sans text-sm", description: "font-sans text-xs text-muted" } }} />
     </div>
   );
 }

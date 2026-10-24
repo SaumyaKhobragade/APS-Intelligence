@@ -37,6 +37,20 @@ export interface ConfusionMatrix {
   falseNegative: number;
 }
 
+export interface DatasetDistribution {
+  normalRecords: number;
+  failureRecords: number;
+  imbalanceRatio: string;
+}
+
+export interface BusinessImpactSummary {
+  falsePositiveCount: number;
+  falseNegativeCount: number;
+  falsePositiveCost: number;
+  falseNegativeCost: number;
+  estimatedCost: number;
+}
+
 export interface ExperimentRecord {
   id: string;
   name: string;
@@ -47,4 +61,13 @@ export interface ExperimentRecord {
   confusionMatrix?: ConfusionMatrix;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface DashboardSnapshot {
+  dataset: DatasetMetadata;
+  distribution: DatasetDistribution;
+  models: ModelMetrics[];
+  businessImpact: BusinessImpactSummary;
+  recentExperiments: ExperimentRecord[];
+  lastUpdated: string;
 }

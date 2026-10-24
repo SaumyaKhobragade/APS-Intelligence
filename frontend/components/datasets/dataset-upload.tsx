@@ -19,6 +19,7 @@ const acceptedFiles = ["aps_failure_training_set.csv", "aps_failure_test_set.csv
 function DatasetUpload({ onUploaded }: DatasetUploadProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [datasetType, setDatasetType] = React.useState<DatasetType>("training");
+  const [detectedDatasetType, setDetectedDatasetType] = React.useState<DatasetType | null>(null);
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [uploadState, setUploadState] = React.useState<UploadState>("idle");
   const [progress, setProgress] = React.useState(0);
@@ -30,6 +31,7 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
     const detectedType = normalizedName === "aps_failure_test_set.csv" ? "testing" : normalizedName === "aps_failure_training_set.csv" ? "training" : null;
 
     setSelectedFile(null);
+    setDetectedDatasetType(null);
     setUploadState("idle");
     setProgress(0);
 
@@ -52,6 +54,7 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
     }
 
     setDatasetType(detectedType);
+    setDetectedDatasetType(detectedType);
     setSelectedFile(file);
     setErrorMessage("");
   }
@@ -75,6 +78,12 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
       return;
     }
 
+    if (detectedDatasetType && datasetType !== detectedDatasetType) {
+      setErrorMessage(`This filename identifies a ${detectedDatasetType} dataset. Confirm the role before uploading; training and testing files cannot be mixed.`);
+      setUploadState("error");
+      return;
+    }
+
     setUploadState("uploading");
     setProgress(8);
     const timer = window.setInterval(() => {
@@ -94,6 +103,7 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
 
   function clearFile() {
     setSelectedFile(null);
+    setDetectedDatasetType(null);
     setUploadState("idle");
     setProgress(0);
     setErrorMessage("");
@@ -145,7 +155,7 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
 
           <div className="mt-6">
             <label htmlFor="dataset-type" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Dataset role</label>
-            <Select id="dataset-type" value={datasetType} onChange={(event) => setDatasetType(event.target.value as DatasetType)} options={[{ label: "Training dataset", value: "training" }, { label: "Testing dataset", value: "testing" }]} disabled={uploadState === "uploading"} />
+            <Select id="dataset-type" value={datasetType} onChange={(event) => { setDatasetType(event.target.value as DatasetType); setErrorMessage(""); setUploadState("idle"); }} options={[{ label: "Training dataset", value: "training" }, { label: "Testing dataset", value: "testing" }]} disabled={uploadState === "uploading"} />
             <p className="mt-2 text-xs leading-5 text-muted">Detected from the supported filename and still visible for confirmation.</p>
           </div>
 

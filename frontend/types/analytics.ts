@@ -7,6 +7,79 @@ export interface DatasetMetadata {
   positiveClassLabel: string;
   missingValueCount: number;
   updatedAt: string;
+  datasetType?: DatasetType;
+  targetColumn?: string;
+  fileSizeBytes?: number;
+  status?: DatasetStatus;
+  uploadedAt?: string;
+}
+
+export type DatasetType = "training" | "testing";
+
+export type DatasetStatus = "ready" | "uploading" | "error" | "not_loaded";
+
+export interface DatasetFile {
+  fileName: string;
+  datasetType: DatasetType;
+  fileSizeBytes: number;
+  uploadedAt: string;
+  status: DatasetStatus;
+}
+
+export type FeatureDataType = "numeric" | "categorical" | "target";
+
+export interface FeatureStatistics {
+  name: string;
+  dataType: FeatureDataType;
+  missingCount: number;
+  missingPercentage: number;
+  nonNullCount: number;
+  minimum?: number;
+  maximum?: number;
+  mean?: number;
+  standardDeviation?: number;
+}
+
+export interface MissingValueSummary {
+  featureName: string;
+  missingCount: number;
+  missingPercentage: number;
+}
+
+export interface DataQualitySummary {
+  totalMissingValues: number;
+  featuresWithMissingValues: number;
+  duplicateRecordCount: number;
+  completenessPercentage: number;
+}
+
+export interface ClassDistribution {
+  totalRecords: number;
+  normalRecords: number;
+  failureRecords: number;
+  normalPercentage: number;
+  failurePercentage: number;
+  imbalanceRatio: string;
+}
+
+export type PreprocessingStageStatus = "pending" | "completed" | "in_progress" | "not_applicable";
+
+export interface PreprocessingStage {
+  id: string;
+  label: string;
+  description: string;
+  status: PreprocessingStageStatus;
+  detail: string;
+}
+
+export interface DatasetUploadResponse {
+  datasetId: string;
+  fileName: string;
+  datasetType: DatasetType;
+  fileSizeBytes: number;
+  uploadedAt: string;
+  status: DatasetStatus;
+  message: string;
 }
 
 export interface ModelMetrics {
@@ -69,5 +142,16 @@ export interface DashboardSnapshot {
   models: ModelMetrics[];
   businessImpact: BusinessImpactSummary;
   recentExperiments: ExperimentRecord[];
+  lastUpdated: string;
+}
+
+export interface DatasetExplorerSnapshot {
+  dataset: DatasetMetadata;
+  file: DatasetFile;
+  quality: DataQualitySummary;
+  missingValues: MissingValueSummary[];
+  classDistribution: ClassDistribution;
+  features: FeatureStatistics[];
+  preprocessing: PreprocessingStage[];
   lastUpdated: string;
 }

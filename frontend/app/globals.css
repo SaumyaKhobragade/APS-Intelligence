@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f4f2ed;
+  --canvas-deep: #ebe8e0;
+  --surface: #fbfaf7;
+  --surface-strong: #ffffff;
+  --ink: #2a2a2a;
+  --ink-soft: #4b4b49;
+  --muted: #787873;
+  --line: #d9d6ce;
+  --line-strong: #b8b5ac;
+  --charcoal: #2a2a2a;
+  --charcoal-soft: #383836;
+  --silver: #c0c0c0;
+  --signal: #e10600;
+  --signal-deep: #b50000;
+  --signal-wash: #f7dedc;
+  --success: #52675c;
+  --warning: #9a6a25;
+  --radius: 0.125rem;
+}
+
+@theme inline {
+  --font-display: var(--font-instrument-serif);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-ibm-plex-mono);
+  --color-canvas: var(--canvas);
+  --color-canvas-deep: var(--canvas-deep);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-charcoal: var(--charcoal);
+  --color-charcoal-soft: var(--charcoal-soft);
+  --color-silver: var(--silver);
+  --color-signal: var(--signal);
+  --color-signal-deep: var(--signal-deep);
+  --color-signal-wash: var(--signal-wash);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 3px);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  background: var(--canvas);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-dm-sans), sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+@keyframes signal-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.signal-pulse {
+  animation: signal-pulse 2.2s ease-in-out infinite;
+}
+
+.technical-grid {
+  background-image: linear-gradient(to right, rgba(42, 42, 42, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(42, 42, 42, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+::selection {
+  background: var(--signal);
+  color: white;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

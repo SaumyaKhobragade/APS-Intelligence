@@ -94,9 +94,10 @@ class DatasetService:
         self.session.refresh(existing)
         return self._summary(existing)
 
-    def sync_configured_datasets(self) -> list[DatasetSummary]:
+    def sync_configured_datasets(self, *, include_testing: bool = True) -> list[DatasetSummary]:
         configured: dict[DatasetKind, Path] = {}
-        for dataset_type in ("training", "testing"):
+        dataset_types: tuple[DatasetKind, ...] = ("training", "testing") if include_testing else ("training",)
+        for dataset_type in dataset_types:
             path = self._configured_path(dataset_type)  # type: ignore[arg-type]
             if path.exists():
                 configured[dataset_type] = path  # type: ignore[index]
@@ -120,15 +121,16 @@ class DatasetService:
         start = (page - 1) * page_size
         return [self._summary(record) for record in records[start : start + page_size]], total
 
-    def get_metadata(self, dataset_id: str) -> DatasetMetadata:
-        self.sync_configured_datasets()
+    def get_metadata(self, dataset_id: str, *, sync: bool = True) -> DatasetMetadata:
+        if sync:
+            self.sync_configured_datasets()
         model = self.session.get(DatasetMetadata, dataset_id)
         if model is None:
             raise ResourceNotFoundError(f"Dataset '{dataset_id}' was not found.")
         return model
 
-    def load(self, dataset_id: str) -> tuple[DatasetMetadata, IngestedDataset]:
-        metadata = self.get_metadata(dataset_id)
+    def load(self, dataset_id: str, *, sync: bool = True) -> tuple[DatasetMetadata, IngestedDataset]:
+        metadata = self.get_metadata(dataset_id, sync=sync)
         try:
             dataset_type = metadata.dataset_type  # type: ignore[assignment]
             return metadata, self._read_path(Path(metadata.source_path), dataset_type)

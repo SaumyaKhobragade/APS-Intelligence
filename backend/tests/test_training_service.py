@@ -81,6 +81,9 @@ def test_training_api_persists_run_metrics_and_artifacts(training_client: TestCl
     preprocessor = load_joblib(Path(payload["artifacts"]["preprocessor_artifact_path"]))
     assert model.predict_proba(preprocessor.transform(pd.DataFrame({"a": [2], "b": [1], "c": [0.5]}))).shape == (1, 2)
     assert training_client.get(f"/api/v1/models/runs/{run_id}/metrics").status_code == 200
+    runs = training_client.get("/api/v1/models/runs?model_name=logistic_regression&page=1&page_size=10")
+    assert runs.status_code == 200
+    assert runs.json()["total"] == 1
 
 
 def test_training_api_rejects_official_test_dataset(training_client: TestClient) -> None:
@@ -100,6 +103,29 @@ def test_model_catalog_and_versions_are_available(training_client: TestClient) -
     versions = training_client.get("/api/v1/models/versions/xgboost")
     assert versions.status_code == 200
     assert versions.json()["versions"]
+
+
+def test_training_request_validation_and_missing_run_errors(training_client: TestClient) -> None:
+    invalid = training_client.post(
+        "/api/v1/models/train",
+        json={
+            "dataset_id": "training-does-not-exist",
+            "model_name": "logistic_regression",
+            "threshold": 1.5,
+        },
+    )
+    assert invalid.status_code == 422
+    assert training_client.get("/api/v1/models/runs/run-missing/status").status_code == 404
+
+    invalid_imbalance = training_client.post(
+        "/api/v1/models/train",
+        json={
+            "dataset_id": "training-does-not-exist",
+            "model_name": "logistic_regression",
+            "class_imbalance": {"mode": "balanced", "scale_pos_weight": 2.0},
+        },
+    )
+    assert invalid_imbalance.status_code == 422
 
 
 @pytest.mark.parametrize(

@@ -192,6 +192,25 @@ fresh database:
 .venv\Scripts\python.exe -m alembic upgrade head
 ```
 
+### Controlled APS training smoke test
+
+On October 26, 2026, all four trainers were run once against the actual APS
+training source with seed `42`, the existing stratified 80/20 split, balanced
+class weighting, and a frozen threshold of `0.5`. The official test source was
+not loaded by the training service. These are controlled smoke-test results,
+not final experimental comparisons or optimized operating points.
+
+| Model | PR-AUC | ROC-AUC | Precision | Recall | F1 | FP / FN | Initial cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Logistic Regression | 0.7223 | 0.9630 | 0.3584 | 0.9050 | 0.5135 | 324 / 19 | 514 |
+| Random Forest | 0.8518 | 0.9932 | 0.7162 | 0.7950 | 0.7536 | 63 / 41 | 473 |
+| XGBoost | 0.7478 | 0.9904 | 0.3282 | 0.9550 | 0.4885 | 391 / 9 | 481 |
+| CatBoost | 0.7094 | 0.9894 | 0.2503 | 0.9700 | 0.3979 | 581 / 6 | 641 |
+
+Each run used 48,000 training records and 12,000 validation records. The
+initial cost uses FP=`1.0` and FN=`10.0`; threshold optimization and the final
+business-cost framework are intentionally deferred.
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later

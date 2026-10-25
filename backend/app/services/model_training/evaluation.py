@@ -10,9 +10,44 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_auc_score,
+    precision_recall_curve,
+    roc_curve,
 )
 
 from app.schemas.models import ConfusionMatrixResponse, EvaluationMetricsResponse
+
+
+def build_curve_data(y_true: Sequence[int], probabilities: Sequence[float], *, max_points: int = 1000) -> dict[str, dict[str, list[float]]]:
+    """Return JSON-safe precision-recall and ROC curve coordinates."""
+
+    truth = np.asarray(y_true, dtype=int)
+    scores = np.asarray(probabilities, dtype=float)
+    precision, recall, pr_thresholds = precision_recall_curve(truth, scores)
+    if len(set(truth.tolist())) < 2:
+        false_positive_rate = np.array([0.0, 1.0])
+        true_positive_rate = np.array([0.0, 1.0])
+        roc_thresholds = np.array([float("inf"), 0.5])
+    else:
+        false_positive_rate, true_positive_rate, roc_thresholds = roc_curve(truth, scores)
+
+    def downsample(values: np.ndarray) -> list[float]:
+        if len(values) <= max_points:
+            return [float(value) for value in values]
+        indices = np.linspace(0, len(values) - 1, max_points, dtype=int)
+        return [float(values[index]) for index in indices]
+
+    return {
+        "precision_recall": {
+            "precision": downsample(precision),
+            "recall": downsample(recall),
+            "thresholds": downsample(pr_thresholds),
+        },
+        "roc": {
+            "false_positive_rate": downsample(false_positive_rate),
+            "true_positive_rate": downsample(true_positive_rate),
+            "thresholds": downsample(roc_thresholds),
+        },
+    }
 
 
 def _safe_average_precision(y_true: Sequence[int], probabilities: Sequence[float]) -> float | None:

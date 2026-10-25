@@ -19,6 +19,20 @@ class TrainingArtifactPaths:
     split_metadata: Path
 
 
+@dataclass(frozen=True)
+class ExperimentArtifactPaths:
+    """Stable artifact locations for one comparative experiment."""
+
+    directory: Path
+    pipeline: Path
+    preprocessor: Path
+    metadata: Path
+    split_metadata: Path
+    curves: Path
+    feature_importance: Path
+    confusion_matrix_visualization: Path
+
+
 def training_artifact_paths(root: Path, run_id: str) -> TrainingArtifactPaths:
     directory = root / "training" / run_id
     return TrainingArtifactPaths(
@@ -27,6 +41,20 @@ def training_artifact_paths(root: Path, run_id: str) -> TrainingArtifactPaths:
         preprocessor=directory / "preprocessor.joblib",
         metadata=directory / "metadata.json",
         split_metadata=directory / "splits.json",
+    )
+
+
+def experiment_artifact_paths(root: Path, experiment_id: str) -> ExperimentArtifactPaths:
+    directory = root / "experiments" / experiment_id
+    return ExperimentArtifactPaths(
+        directory=directory,
+        pipeline=directory / "pipeline.joblib",
+        preprocessor=directory / "preprocessor.joblib",
+        metadata=directory / "metadata.json",
+        split_metadata=directory / "splits.json",
+        curves=directory / "curves.json",
+        feature_importance=directory / "feature_importance.json",
+        confusion_matrix_visualization=directory / "confusion_matrix.svg",
     )
 
 

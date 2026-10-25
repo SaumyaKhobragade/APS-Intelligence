@@ -1,7 +1,9 @@
 alembic>=1.13,<2
 fastapi>=0.115,<1
 httpx>=0.27,<1
+imbalanced-learn>=0.12,<1
 joblib>=1.4,<2
+matplotlib>=3.8,<4
 catboost>=1.2,<2
 numpy>=1.26,<3
 pandas>=2.2,<3

@@ -32,6 +32,25 @@ export function experimentToJson(experiment: ExperimentHistoryRecord): string {
   return JSON.stringify({ source: "Demonstration record", experiment }, null, 2);
 }
 
+export function experimentMetricsToCsv(experiment: ExperimentHistoryRecord): string {
+  const metrics = experiment.evaluationResults;
+  const rows = [
+    ["experiment_id", experiment.id],
+    ["experiment_name", experiment.name],
+    ["model", experiment.modelName],
+    ["dataset", experiment.datasetName],
+    ["pr_auc", metrics.prAuc],
+    ["precision", metrics.precision],
+    ["recall", metrics.recall],
+    ["f1_score", metrics.f1Score],
+    ["classification_threshold", metrics.classificationThreshold],
+    ["false_positives", metrics.businessImpact?.falsePositiveCount],
+    ["false_negatives", metrics.businessImpact?.falseNegativeCount],
+    ["business_cost", metrics.businessImpact?.estimatedCost],
+  ];
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
 export function experimentComparisonToCsv(experiments: ExperimentHistoryRecord[]): string {
   const header = ["experiment_id", "experiment", "model", "dataset", "pr_auc", "precision", "recall", "f1_score", "false_positives", "false_negatives", "threshold", "business_cost", "training_duration_seconds"];
   const rows = experiments.map((experiment) => {

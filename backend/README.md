@@ -1,12 +1,11 @@
 # APS Intelligence Backend
 
-FastAPI backend for the APS Intelligence application. Phase 4 adds controlled
-comparative experimentation on top of the Phase 1 foundation, Phase 2 dataset
-engineering services and Phase 3 model-training registry. It supports original
-data, explicit class weighting, training-only SMOTE, bounded PR-AUC
-hyperparameter search, missing-value strategy comparison and experiment
-comparison artifacts. It does not optimize final thresholds, calibrate
-probabilities or perform inference.
+FastAPI backend for the APS Intelligence application. Phase 5 adds
+validation-only threshold optimization, training-only probability calibration
+and cost-sensitive decision-policy comparison on top of the Phase 1
+foundation, Phase 2 dataset engineering services, Phase 3 model-training
+registry and Phase 4 controlled experiments. It does not expose individual
+vehicle prediction endpoints or evaluate the official APS test set.
 
 ## Local setup
 
@@ -59,7 +58,7 @@ datasets/
 
 artifacts/
 ├── models/       offline-trained model artifacts and metadata
-└── reports/      generated reports and exports
+└── reports/      generated Phase 5 threshold/calibration reports and exports
 ```
 
 The SQLite file, raw data, processed data, model artifacts and reports should
@@ -211,8 +210,8 @@ not final experimental comparisons or optimized operating points.
 | CatBoost | 0.7094 | 0.9894 | 0.2503 | 0.9700 | 0.3979 | 581 / 6 | 641 |
 
 Each run used 48,000 training records and 12,000 validation records. The
-initial cost uses FP=`1.0` and FN=`10.0`; threshold optimization and the final
-business-cost framework are intentionally deferred.
+initial cost uses FP=`1.0` and FN=`10.0`; those Phase 3 values are frozen
+threshold-0.5 smoke results, not Phase 5 optimized policies.
 
 ## Experimentation API
 
@@ -292,8 +291,108 @@ Logistic Regression and was therefore not included in this comparison.
 | Missingness indicators | 0.7278 | 0.9672 | 0.3389 | 0.9200 | 0.4953 | 519 |
 
 These measured results do not select a final production model or threshold.
-Threshold optimization, calibration, final cost-sensitive experimentation and
-official-test evaluation remain outside Phase 4.
+Phase 5 adds validation-only threshold optimization, calibration and
+decision-policy comparisons; official-test evaluation remains deferred.
+
+## Phase 5 threshold, calibration and decision-policy API
+
+Threshold `0.5` is a useful default, not a universal operating point. With a
+rare positive class, a small threshold change can trade many false positives
+for missed failures. Phase 5 evaluates a bounded threshold grid on the
+existing validation split and records the explicit objective:
+
+- `minimum_cost` minimizes
+  `total_cost = (FP * false_positive_cost) + (FN * false_negative_cost)`.
+- `maximum_f1` selects the highest F1-score.
+- `minimum_recall` selects the lowest threshold meeting `required_recall`.
+- `maximum_precision` selects the highest precision among candidates meeting
+  `required_recall`.
+
+The default illustrative costs are FP=`1.0` and FN=`10.0`. They are
+configurable assumptions, not measured Scania operating costs. Minimum-cost
+ties are deterministic: higher recall wins, then the lower threshold. Every
+threshold point records precision, recall, F1, specificity, false-positive and
+false-negative rates, TP/TN/FP/FN, PR-AUC, ROC-AUC, total cost and average cost
+per validation record.
+
+### Leakage-safe calibration
+
+Calibration is fitted after the existing model/experiment artifact is loaded.
+The calibrator uses an internal calibration split derived only from the
+training portion. Validation labels are used only after fitting to evaluate
+uncalibrated probabilities, sigmoid/Platt scaling and isotonic regression.
+The official test file is never loaded by these services. Isotonic regression
+is skipped and reported as `insufficient_sample` when its bounded calibration
+sample does not meet the configured record/class minimums.
+
+PR-AUC and ROC-AUC describe ranking quality. Brier score, log loss and the
+reliability curve describe probability quality; calibration can change
+probability values without improving either ranking metric. Expected
+calibration error, when returned, uses uniform-width `[0, 1]` bins and a
+sample-weighted absolute difference between mean predicted probability and
+observed failure rate in each non-empty bin.
+
+### Endpoints
+
+All routes are under `/api/v1` and accept/return Pydantic v2 contracts:
+
+```text
+POST /thresholds/{reference_id}/analyze
+GET  /thresholds/{reference_id}
+GET  /thresholds/{reference_id}/curve
+POST /thresholds/{reference_id}/compare
+
+POST /calibration/{reference_id}/compare
+GET  /calibration/{reference_id}
+GET  /calibration/{reference_id}/metrics
+GET  /calibration/{reference_id}/reliability
+
+POST /decision-policies/{reference_id}/compare
+GET  /decision-policies/{reference_id}
+```
+
+`reference_id` may be a completed Phase 3 training run or Phase 4 experiment
+run. For example, a minimum-cost threshold analysis with a nine-point grid is:
+
+```powershell
+$body = @{
+  threshold_min = 0.1
+  threshold_max = 0.9
+  threshold_candidates = 9
+  objective = "minimum_cost"
+  false_positive_cost = 1.0
+  false_negative_cost = 10.0
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/thresholds/exp-.../analyze -ContentType "application/json" -Body $body
+```
+
+Phase 5 writes machine-readable JSON, serialized calibrators and SVG charts
+under `REPORT_STORAGE_DIR/phase5/<reference_id>/`. The API returns logical
+artifact names rather than exposing local filesystem paths. Artifact metadata
+includes the run ID, model/version, dataset fingerprint, split identifier,
+random seed, validation size, calibration method, objective, threshold grid,
+cost assumptions and validation-selection caveat.
+
+No Alembic migration is required for Phase 5: provenance and policy metadata
+are persisted in the existing filesystem artifact convention and reference the
+existing training/experiment registry rows.
+
+### Reproduce the analysis
+
+1. Apply migrations and install the backend requirements.
+2. Run a completed training or comparative experiment using the existing
+   training/validation split.
+3. Call threshold analysis with a bounded grid and explicit objective/costs.
+4. Call calibration comparison with the desired internal calibration ratio and
+   minimum sample/class safeguards.
+5. Call decision-policy comparison to compare default, cost-optimal and (when
+   configured) recall-constrained policies.
+6. Freeze the chosen model, calibration method and threshold before any later
+   official-test evaluation.
+
+All reported Phase 5 APS values are validation results. Validation-selected
+thresholds and metrics may be optimistic; no final winning model or production
+policy is declared in this phase.
 
 ## Academic evaluation guardrails
 
@@ -319,10 +418,10 @@ phases, not claims that Phase 1 has already implemented ML behavior:
   10-page report, at least five recent research papers, references and clearly
   labelled charts/tables.
 
-The backend deliberately contains no threshold optimization, probability
-calibration, final cost-sensitive experimentation or prediction implementation
-yet. Phase 4 includes controlled SMOTE comparison but does not use it to make a
-final production selection.
+The backend deliberately contains no individual vehicle prediction
+implementation yet. Phase 5 threshold and calibration outputs are validation
+artifacts only; Phase 4 controlled SMOTE comparison and Phase 5 policy
+comparison do not make a final production selection.
 
 ## Implemented API
 

@@ -31,13 +31,16 @@ responsive accessible Next.js/FastAPI deployment; reproducible experiments;
 automated tests; and a final report with at least five recent research papers.
 Phase 3 adds reproducible Logistic Regression, Random Forest, XGBoost and
 CatBoost training, standardized validation metrics, explicit class weighting,
-filesystem model artifacts and a SQLite-backed training registry. Threshold
-optimization, SMOTE comparisons, calibration, prediction and frontend
-integration remain later phases.
+filesystem model artifacts and a SQLite-backed training registry.
 
 Phase 4 adds controlled comparative experiments for original data, class
 weighting and training-only SMOTE; bounded PR-AUC hyperparameter search;
 missing-value strategy comparison; validation curves; feature importance;
-experiment artifacts; and comparison APIs. Official-test evaluation,
-threshold optimization, calibration and frontend integration remain later
-phases.
+experiment artifacts; and comparison APIs.
+
+Phase 5 adds validation-only threshold optimization, configurable
+false-positive/false-negative business costs, training-only sigmoid and
+isotonic probability calibration, reliability metrics, decision-policy
+comparisons and reproducible report artifacts. The official APS test dataset
+remains isolated and is reserved for a later frozen-policy evaluation. Final
+prediction APIs and frontend integration are intentionally deferred.

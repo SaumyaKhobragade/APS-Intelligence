@@ -93,6 +93,41 @@ export interface ModelMetrics {
   evaluatedAt: string;
 }
 
+export type ModelEvaluationStatus = "completed" | "not_available";
+
+export interface PrecisionRecallPoint {
+  recall: number;
+  precision: number;
+  threshold: number;
+}
+
+export interface FeatureImportance {
+  featureName: string;
+  importance: number;
+  methodology: "absolute_coefficient" | "gain" | "split_frequency";
+}
+
+export type HyperparameterValue = string | number | boolean;
+
+export interface ModelEvaluation extends ModelMetrics {
+  modelType: string;
+  trainingDurationSeconds: number;
+  evaluationStatus: ModelEvaluationStatus;
+  trainingDataset: string;
+  evaluationDataset: string;
+  hyperparameters: Record<string, HyperparameterValue>;
+  confusionMatrix: ConfusionMatrix;
+  businessImpact: BusinessImpactSummary;
+  precisionRecallCurve: PrecisionRecallPoint[];
+  featureImportance?: FeatureImportance[];
+}
+
+export interface ModelComparisonSnapshot {
+  models: ModelEvaluation[];
+  evaluationSplit: string;
+  lastUpdated: string;
+}
+
 export interface PredictionResult {
   predictionId: string;
   datasetRowId: string;

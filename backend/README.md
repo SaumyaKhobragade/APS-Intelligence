@@ -1,10 +1,12 @@
 # APS Intelligence Backend
 
-FastAPI backend for the APS Intelligence application. Phase 3 adds a
-filesystem-backed, reproducible model-training pipeline for Logistic Regression,
-Random Forest, XGBoost and CatBoost on top of the Phase 1 foundation and Phase 2
-dataset engineering services. It does not apply SMOTE, optimize thresholds,
-calibrate probabilities or perform inference.
+FastAPI backend for the APS Intelligence application. Phase 4 adds controlled
+comparative experimentation on top of the Phase 1 foundation, Phase 2 dataset
+engineering services and Phase 3 model-training registry. It supports original
+data, explicit class weighting, training-only SMOTE, bounded PR-AUC
+hyperparameter search, missing-value strategy comparison and experiment
+comparison artifacts. It does not optimize final thresholds, calibrate
+probabilities or perform inference.
 
 ## Local setup
 
@@ -80,10 +82,11 @@ app/api/                    versioned router composition
 app/core/                   settings, logging and application exceptions
 app/schemas/                Pydantic request/response schemas
 app/database/               SQLAlchemy engine, session dependency, metadata base
-app/models/                 dataset and training-run metadata ORM models
+app/models/                 dataset, training-run and experiment metadata ORM models
 app/repositories/           future persistence boundaries
 app/services/dataset/       ingestion, profiling, preprocessing and splitting
 app/services/model_training/ trainers, evaluation, artifacts and orchestration
+app/services/experimentation/ controlled Phase 4 experiment execution/comparison
 app/utils/                  safe shared utilities
 artifacts/models/           filesystem model artifacts, not database blobs
 artifacts/reports/          generated reports, not database blobs
@@ -211,6 +214,87 @@ Each run used 48,000 training records and 12,000 validation records. The
 initial cost uses FP=`1.0` and FN=`10.0`; threshold optimization and the final
 business-cost framework are intentionally deferred.
 
+## Experimentation API
+
+The Phase 4 comparative experiment endpoints are implemented under
+`/api/v1/experiments`:
+
+- `POST /api/v1/experiments` — queue one model/imbalance/preprocessing experiment.
+- `POST /api/v1/experiments/batch` — queue bounded model/strategy combinations.
+- `GET /api/v1/experiments` — paginated experiment registry with filters.
+- `GET /api/v1/experiments/{experiment_id}` — metrics, configuration, curves, importance and artifact references.
+- `POST /api/v1/experiments/compare` — compare completed experiment IDs by standardized metrics.
+- `GET /api/v1/experiments/{experiment_id}/configuration` — exact experiment/search configuration.
+- `GET /api/v1/experiments/{experiment_id}/curves` — validation precision-recall and ROC curve coordinates.
+- `GET /api/v1/experiments/{experiment_id}/feature-importance` — supported feature importance/coefficient values.
+
+SMOTE is represented as an imbalanced-learn pipeline step after preprocessing,
+so it is fitted only inside the training split or training cross-validation
+folds. Validation and official test rows are never resampled. Class weighting
+and SMOTE are mutually exclusive per experiment unless a future phase adds an
+explicit combined strategy. CatBoost hyperparameter search uses the same
+stratified PR-AUC objective through a clone-safe bounded search implementation.
+
+### Controlled APS Phase 4 results
+
+The following results were measured on October 26, 2026 using the actual APS
+training source, seed `42`, the existing stratified 80/20 split, threshold `0.5`,
+FP cost `1.0`, FN cost `10.0`, and 48,000 training/12,000 validation records.
+They are validation experiments, not final test results, optimized thresholds or
+final business-cost claims. The official APS test source was not loaded.
+
+#### Imbalance strategy comparison
+
+Each row uses the same model family, fixed model budget and split while changing
+only the imbalance strategy. Native missing-value handling was used for the
+original/class-weighted XGBoost and CatBoost runs; SMOTE runs used median
+imputation because native missing-value handling is incompatible with SMOTE.
+
+| Model | Strategy | PR-AUC | ROC-AUC | Precision | Recall | F1 | FP / FN | Initial cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Logistic Regression | Original | 0.7554 | 0.9824 | 0.7288 | 0.6450 | 0.6844 | 48 / 71 | 758 |
+| Logistic Regression | Class weight | 0.7223 | 0.9630 | 0.3584 | 0.9050 | 0.5135 | 324 / 19 | 514 |
+| Logistic Regression | SMOTE | 0.7156 | 0.9515 | 0.3590 | 0.8850 | 0.5108 | 316 / 23 | 546 |
+| Random Forest | Original | 0.8776 | 0.9897 | 0.8667 | 0.7150 | 0.7836 | 22 / 57 | 592 |
+| Random Forest | Class weight | 0.8518 | 0.9932 | 0.7162 | 0.7950 | 0.7536 | 63 / 41 | 473 |
+| Random Forest | SMOTE | 0.8113 | 0.9952 | 0.6395 | 0.8250 | 0.7205 | 93 / 35 | 443 |
+| XGBoost | Original | 0.8277 | 0.9931 | 0.8551 | 0.5900 | 0.6982 | 20 / 82 | 840 |
+| XGBoost | Class weight | 0.7478 | 0.9904 | 0.3282 | 0.9550 | 0.4885 | 391 / 9 | 481 |
+| XGBoost | SMOTE | 0.6529 | 0.9854 | 0.3755 | 0.9200 | 0.5333 | 306 / 16 | 466 |
+| CatBoost | Original | 0.8115 | 0.9904 | 0.8682 | 0.5600 | 0.6809 | 17 / 88 | 897 |
+| CatBoost | Class weight | 0.7094 | 0.9894 | 0.2503 | 0.9700 | 0.3979 | 581 / 6 | 641 |
+| CatBoost | SMOTE | 0.6945 | 0.9904 | 0.3287 | 0.9450 | 0.4877 | 386 / 11 | 496 |
+
+#### Bounded APS hyperparameter search
+
+Each search used `search_budget=2`, two stratified folds and PR-AUC scoring on
+training folds only. The reported final metrics are from the refit candidate on
+the fixed validation split.
+
+| Model | Best parameters | Validation PR-AUC | ROC-AUC | Initial cost | Search status |
+| --- | --- | ---: | ---: | ---: | --- |
+| Logistic Regression | `C=0.5` | 0.7276 | 0.9721 | 502 | completed |
+| Random Forest | `n_estimators=200, max_depth=32, min_samples_leaf=5` | 0.8382 | 0.9920 | 326 | completed |
+| XGBoost | `subsample=0.8, n_estimators=200, max_depth=5, learning_rate=0.03, colsample_bytree=0.8` | 0.8438 | 0.9942 | 335 | completed |
+| CatBoost | `iterations=200, depth=4, learning_rate=0.05, l2_leaf_reg=1.0` | 0.7744 | 0.9930 | 507 | completed |
+
+#### APS missing-value strategy comparison
+
+These runs hold Logistic Regression, class weighting, seed, split and threshold
+constant while varying preprocessing. Native handling is not applicable to
+Logistic Regression and was therefore not included in this comparison.
+
+| Preprocessing | PR-AUC | ROC-AUC | Precision | Recall | F1 | Initial cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Median | 0.7223 | 0.9630 | 0.3584 | 0.9050 | 0.5135 | 514 |
+| Mean | 0.7256 | 0.9701 | 0.3515 | 0.9050 | 0.5063 | 524 |
+| Constant (`0.0`) | 0.7283 | 0.9594 | 0.3658 | 0.9200 | 0.5235 | 479 |
+| Missingness indicators | 0.7278 | 0.9672 | 0.3389 | 0.9200 | 0.4953 | 519 |
+
+These measured results do not select a final production model or threshold.
+Threshold optimization, calibration, final cost-sensitive experimentation and
+official-test evaluation remain outside Phase 4.
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later
@@ -235,9 +319,10 @@ phases, not claims that Phase 1 has already implemented ML behavior:
   10-page report, at least five recent research papers, references and clearly
   labelled charts/tables.
 
-The backend deliberately contains no SMOTE comparison, threshold optimization,
-probability calibration, final cost-sensitive experimentation or prediction
-implementation yet.
+The backend deliberately contains no threshold optimization, probability
+calibration, final cost-sensitive experimentation or prediction implementation
+yet. Phase 4 includes controlled SMOTE comparison but does not use it to make a
+final production selection.
 
 ## Implemented API
 
@@ -334,5 +419,6 @@ python -c "from app.main import app; print(app.title)"
 The foundation tests use isolated temporary SQLite URLs and do not require
 production datasets, trained model files or network services.
 
-Phase 3 tests use small synthetic imbalanced datasets. The complete test suite
-does not train all four models on the full APS dataset.
+Phase 3 and Phase 4 tests use small synthetic imbalanced datasets. The complete
+test suite does not train all four models on the full APS dataset; the APS
+results above come from separate controlled smoke scripts.

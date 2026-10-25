@@ -34,3 +34,10 @@ CatBoost training, standardized validation metrics, explicit class weighting,
 filesystem model artifacts and a SQLite-backed training registry. Threshold
 optimization, SMOTE comparisons, calibration, prediction and frontend
 integration remain later phases.
+
+Phase 4 adds controlled comparative experiments for original data, class
+weighting and training-only SMOTE; bounded PR-AUC hyperparameter search;
+missing-value strategy comparison; validation curves; feature importance;
+experiment artifacts; and comparison APIs. Official-test evaluation,
+threshold optimization, calibration and frontend integration remain later
+phases.

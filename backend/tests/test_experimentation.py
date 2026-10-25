@@ -98,6 +98,28 @@ def test_hyperparameter_search_uses_pr_auc_and_records_results(experiment_client
     assert result["configuration"]["fit_scope"] == "training split only"
 
 
+def test_catboost_hyperparameter_search_uses_manual_clone_safe_path(experiment_client: TestClient) -> None:
+    result = complete_experiment(
+        experiment_client,
+        {
+            "dataset_id": training_dataset_id(experiment_client),
+            "model_name": "catboost",
+            "imbalance_strategy": "class_weight",
+            "preprocessing_strategy": "native",
+            "optimize_hyperparameters": True,
+            "search_budget": 1,
+            "cv_folds": 2,
+            "search_n_jobs": 1,
+            "random_seed": 31,
+            "hyperparameters": {"iterations": 10, "depth": 3, "thread_count": 1},
+        },
+    )
+
+    assert result["status"] == "completed", result
+    assert result["search_results"][0]["rank"] == 1
+    assert result["metrics"]["pr_auc"] is not None
+
+
 def test_comparison_and_experiment_subresources_work(experiment_client: TestClient) -> None:
     first = complete_experiment(
         experiment_client,
@@ -124,6 +146,9 @@ def test_comparison_and_experiment_subresources_work(experiment_client: TestClie
     assert comparison.status_code == 200
     assert comparison.json()["primary_metric"] == "pr_auc"
     assert len(comparison.json()["metric_rows"]) == 2
+    first_detail = experiment_client.get(f"/api/v1/experiments/{first['experiment_id']}").json()
+    second_detail = experiment_client.get(f"/api/v1/experiments/{second['experiment_id']}").json()
+    assert first_detail["artifacts"]["artifact_directory"] != second_detail["artifacts"]["artifact_directory"]
     assert experiment_client.get(f"/api/v1/experiments/{first['experiment_id']}/curves").status_code == 200
     assert experiment_client.get(f"/api/v1/experiments/{first['experiment_id']}/feature-importance").status_code == 200
     assert experiment_client.get(f"/api/v1/experiments/{first['experiment_id']}/configuration").status_code == 200

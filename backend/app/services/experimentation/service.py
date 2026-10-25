@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import random
+import statistics
 import time
 from typing import Any, cast
 from uuid import uuid4
@@ -13,6 +15,7 @@ import pandas as pd
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbalancedPipeline
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from sklearn.metrics import average_precision_score
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -94,6 +97,16 @@ def _search_space(model_name: str) -> dict[str, list[Any]]:
         },
     }
     return spaces[model_name]
+
+
+def _sample_search_parameters(search_space: dict[str, list[Any]], budget: int, seed: int) -> list[dict[str, Any]]:
+    """Sample bounded candidate combinations deterministically."""
+
+    import itertools
+
+    candidates = [dict(zip(search_space, values)) for values in itertools.product(*search_space.values())]
+    random.Random(seed).shuffle(candidates)
+    return candidates[: min(budget, len(candidates))]
 
 
 def _feature_importance(fitted_pipeline: Any) -> list[FeatureImportanceItem]:
@@ -215,6 +228,43 @@ class ExperimentService:
         except (ValueError, TypeError) as exc:
             raise InvalidRequestError(str(exc)) from exc
 
+    def _manual_catboost_search(
+        self,
+        request: ExperimentRequest,
+        feature_names: list[str],
+        frame: pd.DataFrame,
+        target_column: str,
+        train_x: pd.DataFrame,
+        train_y: Any,
+    ) -> tuple[Any, dict[str, Any], list[dict[str, Any]]]:
+        """Search CatBoost without sklearn cloning its mutable class_weights list."""
+
+        search_space = _search_space(request.model_name)
+        candidates = _sample_search_parameters(search_space, request.search_budget, request.random_seed)
+        splitter = StratifiedKFold(n_splits=request.cv_folds, shuffle=True, random_state=request.random_seed)
+        fold_results: list[dict[str, Any]] = []
+        for candidate in candidates:
+            scores: list[float] = []
+            for train_indices, validation_indices in splitter.split(train_x, train_y):
+                fold_pipeline = self._build_pipeline(request, feature_names, frame, target_column)
+                fold_pipeline.set_params(**candidate)
+                fold_pipeline.fit(train_x.iloc[train_indices], train_y[train_indices])
+                fold_probabilities = fold_pipeline.predict_proba(train_x.iloc[validation_indices])[:, 1]
+                scores.append(float(average_precision_score(train_y[validation_indices], fold_probabilities)))
+            fold_results.append({
+                "params": _json_safe(candidate),
+                "mean_test_pr_auc": sum(scores) / len(scores),
+                "std_test_pr_auc": float(statistics.pstdev(scores)),
+            })
+        fold_results.sort(key=lambda result: result["mean_test_pr_auc"], reverse=True)
+        for rank, result in enumerate(fold_results, start=1):
+            result["rank"] = rank
+        best_parameters = fold_results[0]["params"]
+        fitted = self._build_pipeline(request, feature_names, frame, target_column)
+        fitted.set_params(**best_parameters)
+        fitted.fit(train_x, train_y)
+        return fitted, {key.removeprefix("model__"): value for key, value in best_parameters.items()}, fold_results
+
     def create_queued(self, request: ExperimentRequest) -> ExperimentRun:
         metadata, ingested = self._training_dataset(request.dataset_id)
         trainer = get_trainer(request.model_name)
@@ -282,14 +332,23 @@ class ExperimentService:
                 random_seed=request.random_seed,
             )
             feature_names = list(ingested.feature_columns)
-            train_x = prepared.training[feature_names]
-            validation_x = prepared.validation[feature_names]
+            train_x = cast(pd.DataFrame, prepared.training[feature_names])
+            validation_x = cast(pd.DataFrame, prepared.validation[feature_names])
             train_y = prepared.training[ingested.target_column].map(lambda value: 0 if value == "neg" else 1).astype(int).to_numpy()
             validation_y = prepared.validation[ingested.target_column].map(lambda value: 0 if value == "neg" else 1).astype(int).to_numpy()
             pipeline = self._build_pipeline(request, feature_names, ingested.frame, ingested.target_column)
             best_parameters: dict[str, Any] = self._validated_hyperparameters(request)
             search_results: list[dict[str, Any]] = []
-            if request.optimize_hyperparameters:
+            if request.optimize_hyperparameters and request.model_name == "catboost":
+                fitted, best_parameters, search_results = self._manual_catboost_search(
+                    request,
+                    feature_names,
+                    ingested.frame,
+                    ingested.target_column,
+                    train_x,
+                    train_y,
+                )
+            elif request.optimize_hyperparameters:
                 search = RandomizedSearchCV(
                     pipeline,
                     param_distributions=_search_space(request.model_name),

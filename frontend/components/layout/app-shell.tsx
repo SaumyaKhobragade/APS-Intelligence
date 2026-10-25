@@ -130,7 +130,7 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "De
               <Activity aria-hidden="true" className="size-4 text-signal" />
               <span>Reliability workspace</span>
               <span className="text-line-strong">/</span>
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em]">Phase 02 / overview</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em]">{metadata.eyebrow}</span>
             </div>
             <div className="flex items-center gap-3">
               <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local preview</Badge>

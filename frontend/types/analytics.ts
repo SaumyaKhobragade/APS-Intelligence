@@ -131,11 +131,73 @@ export interface ModelComparisonSnapshot {
 export interface PredictionResult {
   predictionId: string;
   datasetRowId: string;
-  predictedLabel: string;
+  predictedLabel: PredictionClass;
   failureProbability: number;
   threshold: number;
   modelId: string;
   createdAt: string;
+  modelName?: string;
+  status?: PredictionStatus;
+  source?: PredictionSource;
+  missingFeatureCount?: number;
+  batchRowCount?: number;
+  featureContributions?: FeatureContribution[];
+}
+
+export type PredictionClass = "normal" | "failure";
+
+export type PredictionStatus = "queued" | "processing" | "completed" | "failed";
+
+export type PredictionSource = "single" | "batch";
+
+export type PredictionAvailability = "demo_only" | "not_loaded";
+
+export interface SensorFeatureDefinition {
+  id: string;
+  group: string;
+  order: number;
+}
+
+export interface PredictionModelOption {
+  modelId: string;
+  modelName: string;
+  availability: PredictionAvailability;
+  availabilityNote: string;
+  prAuc: number;
+  defaultThreshold: number;
+}
+
+export interface FeatureContribution {
+  featureId: string;
+  contribution: number;
+  direction: "increase_risk" | "decrease_risk";
+  method: "backend_shap" | "backend_coefficient";
+}
+
+export interface PredictionRequest {
+  modelId: string;
+  readings: Record<string, number | null>;
+}
+
+export interface BatchUploadSummary {
+  fileName: string;
+  fileSizeBytes: number;
+  rowCount: number;
+  featureCount: number;
+  missingFeatureCount: number;
+  missingValueCount: number;
+  status: "ready" | "error" | "processing" | "completed";
+  errorMessage?: string;
+}
+
+export interface BatchPredictionResponse {
+  batchId: string;
+  status: PredictionStatus;
+  rowCount: number;
+  completedCount: number;
+  failedCount: number;
+  resultsFileName: string;
+  completedAt?: string;
 }
 
 export interface ConfusionMatrix {

@@ -1,5 +1,7 @@
 export type {
   BusinessImpactSummary,
+  BatchPredictionResponse,
+  BatchUploadSummary,
   ClassDistribution,
   ConfusionMatrix,
   DashboardSnapshot,
@@ -14,6 +16,7 @@ export type {
   ExperimentRecord,
   FeatureDataType,
   FeatureImportance,
+  FeatureContribution,
   FeatureStatistics,
   HyperparameterValue,
   ModelComparisonSnapshot,
@@ -25,4 +28,11 @@ export type {
   PreprocessingStageStatus,
   PrecisionRecallPoint,
   PredictionResult,
+  PredictionAvailability,
+  PredictionClass,
+  PredictionModelOption,
+  PredictionRequest,
+  PredictionSource,
+  PredictionStatus,
+  SensorFeatureDefinition,
 } from "./analytics";

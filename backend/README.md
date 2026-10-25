@@ -3,7 +3,7 @@
 FastAPI foundation for the APS Intelligence application. This phase provides
 configuration, versioned routing, health checks, SQLite/SQLAlchemy/Alembic
 foundations, centralized errors, CORS and isolated tests. It intentionally does
-not train models, preprocess datasets or perform inference.
+not train models, clean datasets, preprocess features or perform inference.
 
 ## Local setup
 
@@ -25,10 +25,49 @@ The first implemented endpoint is:
 GET http://127.0.0.1:8000/api/v1/health
 ```
 
-The default SQLite database is a local file under the backend working
-directory. Large datasets and model artifacts belong in `datasets/` and
-`artifacts/`, not in SQLite. Those directories are ignored except for their
-`.gitkeep` markers.
+The default SQLite database is under `./data/` for local development. Large
+datasets, model artifacts and reports belong in filesystem storage, not in
+SQLite. The repository contains only directory markers; dataset contents,
+trained models and generated reports are ignored by the root `.gitignore`.
+
+## Persistent storage and AWS EBS
+
+SQLite is the database engine; EBS is the persistent block storage layer used
+by the EC2 deployment. They are separate concerns. In production, mount an EBS
+volume and set every persistent path to that mount, for example:
+
+```dotenv
+PERSISTENT_STORAGE_DIR=/mnt/aps-intelligence
+DATABASE_URL=sqlite:////mnt/aps-intelligence/aps_intelligence.db
+DATASET_STORAGE_DIR=/mnt/aps-intelligence/datasets
+MODEL_ARTIFACT_DIR=/mnt/aps-intelligence/artifacts/models
+REPORT_STORAGE_DIR=/mnt/aps-intelligence/artifacts/reports
+```
+
+The logical storage layout is:
+
+```text
+datasets/
+├── raw/          original CSV files; never modified by preprocessing
+├── reference/    dataset documentation and reference files
+└── processed/    generated, versioned preprocessing outputs
+
+artifacts/
+├── models/       offline-trained model artifacts and metadata
+└── reports/      generated reports and exports
+```
+
+The SQLite file, raw data, processed data, model artifacts and reports should
+all be included in an operational backup plan for the EBS volume. Backups
+should be scheduled, encrypted, retained according to project policy and
+periodically restored to a separate volume to verify recovery. Do not rely on
+instance-store or temporary filesystem paths for persistent application data.
+
+For the local repository dataset layout, the original files are kept at
+`backend/datasets/raw/aps_failure_training_set.csv`,
+`backend/datasets/raw/aps_failure_test_set.csv` and
+`backend/datasets/reference/aps_failure_description.txt`. They remain outside
+Git tracking.
 
 ## Architecture
 
@@ -42,8 +81,11 @@ app/models/                 future metadata ORM models
 app/repositories/           future persistence boundaries
 app/services/               future domain/application services
 app/utils/                  safe shared utilities
-artifacts/                  filesystem model artifacts, not database blobs
-datasets/                   filesystem CSV storage, not database blobs
+artifacts/models/           filesystem model artifacts, not database blobs
+artifacts/reports/          generated reports, not database blobs
+datasets/raw/               immutable source files, not database blobs
+datasets/reference/         dataset documentation
+datasets/processed/         generated preprocessing outputs
 alembic/                    future schema migration scripts
 tests/                      isolated foundation tests
 ```
@@ -66,10 +108,12 @@ important values are:
 | `ENVIRONMENT` | Runtime environment label | `development` |
 | `API_PREFIX` | Versioned API prefix | `/api/v1` |
 | `BACKEND_HOST` / `BACKEND_PORT` | Uvicorn bind settings | `127.0.0.1:8000` |
-| `DATABASE_URL` | SQLAlchemy connection URL | `sqlite:///./aps_intelligence.db` |
+| `PERSISTENT_STORAGE_DIR` | Local/EBS root for persistent runtime data | `./data` |
+| `DATABASE_URL` | SQLAlchemy connection URL | `sqlite:///./data/aps_intelligence.db` |
 | `ALLOWED_CORS_ORIGINS` | JSON list or comma-separated origins | localhost ports 3000 |
 | `DATASET_STORAGE_DIR` | CSV filesystem directory | `./datasets` |
-| `MODEL_ARTIFACT_DIR` | Offline artifact directory | `./artifacts` |
+| `MODEL_ARTIFACT_DIR` | Offline model artifact directory | `./artifacts/models` |
+| `REPORT_STORAGE_DIR` | Generated report directory | `./artifacts/reports` |
 | `LOG_LEVEL` | Server log level | `INFO` |
 
 The current frontend `.env.example` points to `http://localhost:8000`, while
@@ -77,6 +121,33 @@ the backend routes are versioned under `/api/v1`. Before connecting the
 frontend, either set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`
 or add the prefix in the shared frontend API client. This phase does not modify
 working frontend functionality.
+
+## Academic evaluation guardrails
+
+The 15-mark mini-project requirements are architecture constraints for later
+phases, not claims that Phase 1 has already implemented ML behavior:
+
+- **Data cleaning and splitting (3 marks):** later dataset services must report
+  missingness, duplicates and invalid records; keep missing-value strategies
+  explicit; prevent leakage; and isolate the official test file from training
+  and validation selection.
+- **Model comparison (4 marks):** later experiment services must compare
+  Logistic Regression, Random Forest, XGBoost and CatBoost using PR-AUC as the
+  primary metric plus precision, recall, F1, confusion counts and configurable
+  `FP`/`FN` business cost. SMOTE must run on training data only. Validation data
+  selects models and thresholds; the official test set is evaluated only after
+  the threshold is frozen.
+- **UI deployment and accessibility (4 marks):** the existing Next.js app and
+  FastAPI service are intended to run behind one EC2 deployment. Future phases
+  must preserve desktop/tablet/mobile layouts, API error states and keyboard or
+  screen-reader checks.
+- **Code quality and submission (4 marks):** future phases must keep automated
+  tests, reproducible configuration snapshots, meaningful commits, a final
+  10-page report, at least five recent research papers, references and clearly
+  labelled charts/tables.
+
+The backend foundation deliberately contains no training, SMOTE, cleaning or
+prediction implementation yet.
 
 ## Implemented API
 

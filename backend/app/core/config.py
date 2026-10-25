@@ -29,12 +29,14 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     backend_host: str = "127.0.0.1"
     backend_port: int = Field(default=8000, ge=1, le=65535)
-    database_url: str = "sqlite:///./aps_intelligence.db"
+    persistent_storage_dir: Path = Path("./data")
+    database_url: str = "sqlite:///./data/aps_intelligence.db"
     allowed_cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
     dataset_storage_dir: Path = Path("./datasets")
-    model_artifact_dir: Path = Path("./artifacts")
+    model_artifact_dir: Path = Path("./artifacts/models")
+    report_storage_dir: Path = Path("./artifacts/reports")
     log_level: str = "INFO"
 
     @field_validator("api_prefix")
@@ -62,8 +64,12 @@ class Settings(BaseSettings):
     def ensure_storage_directories(self) -> None:
         """Create local artifact directories without touching database data."""
 
-        self.dataset_storage_dir.mkdir(parents=True, exist_ok=True)
+        self.persistent_storage_dir.mkdir(parents=True, exist_ok=True)
+        self.dataset_storage_dir.joinpath("raw").mkdir(parents=True, exist_ok=True)
+        self.dataset_storage_dir.joinpath("reference").mkdir(parents=True, exist_ok=True)
+        self.dataset_storage_dir.joinpath("processed").mkdir(parents=True, exist_ok=True)
         self.model_artifact_dir.mkdir(parents=True, exist_ok=True)
+        self.report_storage_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

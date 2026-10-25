@@ -22,6 +22,15 @@ def test_application_starts_and_health_endpoint_returns_contract(client: TestCli
     }
 
 
+def test_startup_creates_configured_storage_layout(client: TestClient, test_settings: Settings) -> None:
+    assert test_settings.persistent_storage_dir.is_dir()
+    assert test_settings.dataset_storage_dir.joinpath("raw").is_dir()
+    assert test_settings.dataset_storage_dir.joinpath("reference").is_dir()
+    assert test_settings.dataset_storage_dir.joinpath("processed").is_dir()
+    assert test_settings.model_artifact_dir.is_dir()
+    assert test_settings.report_storage_dir.is_dir()
+
+
 def test_api_version_routing_is_required(client: TestClient) -> None:
     assert client.get("/health").status_code == 404
     assert client.get("/api/v1/health").status_code == 200
@@ -65,7 +74,13 @@ def test_unknown_route_returns_safe_not_found_response(client: TestClient) -> No
 
 
 def test_database_engine_and_session_initialize_in_isolation(tmp_path: Path) -> None:
-    settings = Settings(database_url=f"sqlite:///{tmp_path / 'isolated.db'}")
+    settings = Settings(
+        persistent_storage_dir=tmp_path / "data",
+        database_url=f"sqlite:///{tmp_path / 'isolated.db'}",
+        dataset_storage_dir=tmp_path / "datasets",
+        model_artifact_dir=tmp_path / "artifacts/models",
+        report_storage_dir=tmp_path / "artifacts/reports",
+    )
     isolated_engine = create_database_engine(settings)
 
     with isolated_engine.connect() as connection:

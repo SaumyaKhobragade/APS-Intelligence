@@ -16,9 +16,11 @@ def test_settings(tmp_path: Path) -> Settings:
         app_name="APS Intelligence Test API",
         app_version="test",
         environment="test",
+        persistent_storage_dir=tmp_path / "data",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         dataset_storage_dir=tmp_path / "datasets",
         model_artifact_dir=tmp_path / "artifacts",
+        report_storage_dir=tmp_path / "reports",
         allowed_cors_origins=["http://testclient.local"],
         log_level="WARNING",
     )

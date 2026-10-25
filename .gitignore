@@ -1,52 +1,86 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# -----------------------------------------------------------------------------
+# Operating-system and editor files
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
 
-# dependencies
+# -----------------------------------------------------------------------------
+# Node.js / Next.js frontend
+# -----------------------------------------------------------------------------
 **/node_modules/
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
 **/.next/
 **/out/
-
-# production
 **/build/
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+**/.turbo/
+**/.vercel/
+**/.pnp
+**/.pnp.js
+**/*.tsbuildinfo
+**/coverage/
+next-env.d.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# local env files
-.env*.local
-.env
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# Python backend
+# -----------------------------------------------------------------------------
+# Python backend and virtual environments
+# -----------------------------------------------------------------------------
+**/.venv/
+**/venv/
+**/env/
 **/__pycache__/
 **/*.py[cod]
+**/*.pyo
 **/.pytest_cache/
 **/.mypy_cache/
 **/.ruff_cache/
-backend/.venv/
-backend/.env
-backend/*.db
-backend/*.sqlite
-backend/*.sqlite3
-backend/artifacts/*
-backend/datasets/*
-!backend/artifacts/.gitkeep
-!backend/datasets/.gitkeep
+**/.tox/
+**/htmlcov/
+*.egg-info/
+*.egg
+
+# -----------------------------------------------------------------------------
+# Environment files: keep templates such as .env.example trackable
+# -----------------------------------------------------------------------------
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+
+# -----------------------------------------------------------------------------
+# Databases, logs and local runtime state
+# -----------------------------------------------------------------------------
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.db-journal
+**/*.log
+backend/data/
+
+# -----------------------------------------------------------------------------
+# APS datasets and generated artifacts
+# Keep source code, README files, configuration templates and tests trackable.
+# -----------------------------------------------------------------------------
+backend/datasets/raw/*
+backend/datasets/reference/*
+backend/datasets/processed/*
+backend/artifacts/models/*
+backend/artifacts/reports/*
+backend/artifacts/tmp/
+
+# Preserve empty storage directory markers.
+!backend/datasets/raw/.gitkeep
+!backend/datasets/reference/.gitkeep
+!backend/datasets/processed/.gitkeep
+!backend/artifacts/models/.gitkeep
+
+# Temporary exports and generated report files outside the backend tree.
+reports/
+tmp/
+temp/
+!backend/artifacts/reports/.gitkeep

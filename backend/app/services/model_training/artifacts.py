@@ -39,6 +39,7 @@ class Phase5ArtifactPaths:
 
     directory: Path
     thresholds: Path
+    threshold_policy_comparisons: Path
     threshold_precision_recall_visualization: Path
     threshold_metrics_visualization: Path
     threshold_cost_visualization: Path
@@ -87,6 +88,7 @@ def phase5_artifact_paths(root: Path, reference_id: str) -> Phase5ArtifactPaths:
     return Phase5ArtifactPaths(
         directory=directory,
         thresholds=directory / "thresholds.json",
+        threshold_policy_comparisons=directory / "threshold_policy_comparisons.json",
         threshold_precision_recall_visualization=directory / "threshold_precision_recall.svg",
         threshold_metrics_visualization=directory / "threshold_metrics.svg",
         threshold_cost_visualization=directory / "threshold_business_cost.svg",

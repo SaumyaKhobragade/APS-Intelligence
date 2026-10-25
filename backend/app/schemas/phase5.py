@@ -159,6 +159,7 @@ class Phase5ArtifactReferences(BaseModel):
 
     directory_key: str
     thresholds: str | None = None
+    threshold_policy_comparisons: str | None = None
     calibration: str | None = None
     decision_policies: str | None = None
     visualizations: dict[str, str] = Field(default_factory=dict)

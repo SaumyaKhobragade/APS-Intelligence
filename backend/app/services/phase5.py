@@ -59,6 +59,7 @@ def _phase5_artifacts(settings: Settings, reference_id: str) -> Phase5ArtifactRe
     return Phase5ArtifactReferences(
         directory_key=f"phase5/{reference_id}",
         thresholds="thresholds.json",
+        threshold_policy_comparisons="threshold_policy_comparisons.json",
         calibration="calibration.json",
         decision_policies="decision_policies.json",
         visualizations={
@@ -392,6 +393,10 @@ class Phase5Service:
             configuration=request.model_dump(mode="json"),
             rows=rows,
             artifacts=_phase5_artifacts(self.settings, reference_id),
+        )
+        save_json(
+            response.model_dump(mode="json"),
+            phase5_artifact_paths(self.settings.report_storage_dir, reference_id).threshold_policy_comparisons,
         )
         return response
 

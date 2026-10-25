@@ -269,6 +269,7 @@ def test_phase5_apis_generate_retrieve_and_compare_policies(phase5_client: TestC
     )
     assert policy_compare.status_code == 200, policy_compare.text
     assert len(policy_compare.json()["rows"]) == 3
+    assert (test_settings.report_storage_dir / "phase5" / experiment_id / "threshold_policy_comparisons.json").is_file()
 
     calibration = phase5_client.post(
         f"/api/v1/calibration/{experiment_id}/compare",

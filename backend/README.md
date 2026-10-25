@@ -366,8 +366,9 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/thresholds/exp-.../analyze -ContentType "application/json" -Body $body
 ```
 
-Phase 5 writes machine-readable JSON, serialized calibrators and SVG charts
-under `REPORT_STORAGE_DIR/phase5/<reference_id>/`. The API returns logical
+Phase 5 writes machine-readable threshold curves and policy-comparison JSON,
+serialized calibrators and SVG charts under
+`REPORT_STORAGE_DIR/phase5/<reference_id>/`. The API returns logical
 artifact names rather than exposing local filesystem paths. Artifact metadata
 includes the run ID, model/version, dataset fingerprint, split identifier,
 random seed, validation size, calibration method, objective, threshold grid,

@@ -391,7 +391,7 @@ class TrainingService:
         for trainer in list_trainers():
             versions = list(self.session.scalars(select(ModelTrainingRun.model_version).where(ModelTrainingRun.model_name == trainer["name"], ModelTrainingRun.status == "completed").distinct()))
             count = int(self.session.scalar(select(func.count()).select_from(ModelTrainingRun).where(ModelTrainingRun.model_name == trainer["name"], ModelTrainingRun.status == "completed")) or 0)
-            items.append(ModelCatalogItem(model_name=trainer["name"], display_name=trainer["display_name"], trainer_version=trainer["version"], available_versions=sorted(set(versions)), completed_run_count=count))  # type: ignore[arg-type]
+            items.append(ModelCatalogItem(model_name=trainer["name"], display_name=trainer["display_name"], trainer_version=trainer["version"], available_versions=sorted(set([trainer["version"], *versions])), completed_run_count=count))  # type: ignore[arg-type]
         return ModelCatalogResponse(items=items)
 
     def versions(self, model_name: ModelName) -> ModelVersionsResponse:

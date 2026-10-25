@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.database.base import Base
 from app.main import create_app
+from app.services.model_training.artifacts import load_joblib
 
 
 def training_csv(rows: int = 30) -> str:
@@ -76,6 +77,9 @@ def test_training_api_persists_run_metrics_and_artifacts(training_client: TestCl
     assert Path(payload["artifacts"]["model_artifact_path"]).is_file()
     assert Path(payload["artifacts"]["preprocessor_artifact_path"]).is_file()
     assert Path(payload["artifacts"]["metadata_artifact_path"]).is_file()
+    model = load_joblib(Path(payload["artifacts"]["model_artifact_path"]))
+    preprocessor = load_joblib(Path(payload["artifacts"]["preprocessor_artifact_path"]))
+    assert model.predict_proba(preprocessor.transform(pd.DataFrame({"a": [2], "b": [1], "c": [0.5]}))).shape == (1, 2)
     assert training_client.get(f"/api/v1/models/runs/{run_id}/metrics").status_code == 200
 
 
@@ -96,3 +100,38 @@ def test_model_catalog_and_versions_are_available(training_client: TestClient) -
     versions = training_client.get("/api/v1/models/versions/xgboost")
     assert versions.status_code == 200
     assert versions.json()["versions"]
+
+
+@pytest.mark.parametrize(
+    ("model_name", "hyperparameters"),
+    [
+        ("logistic_regression", {"max_iter": 200}),
+        ("random_forest", {"n_estimators": 10, "n_jobs": 1}),
+        ("xgboost", {"n_estimators": 10, "max_depth": 2, "n_jobs": 1}),
+        ("catboost", {"iterations": 10, "depth": 3, "thread_count": 1}),
+    ],
+)
+def test_all_model_families_complete_a_synthetic_training_run(
+    training_client: TestClient,
+    model_name: str,
+    hyperparameters: dict[str, object],
+) -> None:
+    datasets = training_client.get("/api/v1/datasets").json()["items"]
+    training_dataset = next(item for item in datasets if item["dataset_type"] == "training")
+    response = training_client.post(
+        "/api/v1/models/train",
+        json={
+            "dataset_id": training_dataset["dataset_id"],
+            "model_name": model_name,
+            "validation_ratio": 0.2,
+            "random_seed": 29,
+            "hyperparameters": hyperparameters,
+        },
+    )
+    assert response.status_code == 202, response.text
+    run_id = response.json()["run_id"]
+    status = wait_for_completion(training_client, run_id)
+    assert status["status"] == "completed", status
+    metrics = training_client.get(f"/api/v1/models/runs/{run_id}/metrics")
+    assert metrics.status_code == 200
+    assert metrics.json()["primary_metric"] == "pr_auc"

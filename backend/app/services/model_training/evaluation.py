@@ -32,9 +32,9 @@ def build_curve_data(y_true: Sequence[int], probabilities: Sequence[float], *, m
 
     def downsample(values: np.ndarray) -> list[float]:
         if len(values) <= max_points:
-            return [float(value) for value in values]
+            return [float(value) if np.isfinite(value) else 1.0 for value in values]
         indices = np.linspace(0, len(values) - 1, max_points, dtype=int)
-        return [float(values[index]) for index in indices]
+        return [float(value) if np.isfinite(value) else 1.0 for value in values[indices]]
 
     return {
         "precision_recall": {

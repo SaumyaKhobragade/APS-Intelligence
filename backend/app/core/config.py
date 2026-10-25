@@ -5,7 +5,13 @@ from pathlib import Path
 from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+try:
+    from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict  # type: ignore[attr-defined]
+except ImportError:  # pydantic-settings 2.5.x has no NoDecode marker.
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class NoDecode:  # type: ignore[no-redef]
+        """Compatibility marker; newer pydantic-settings provides this class."""
 
 
 class Settings(BaseSettings):

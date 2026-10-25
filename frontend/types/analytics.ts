@@ -302,6 +302,138 @@ export interface ExperimentRecord {
   completedAt?: string;
 }
 
+export type ExperimentType = "model_evaluation" | "threshold_evaluation" | "calibration" | "prediction_evaluation";
+
+export type ExperimentComparisonCompatibility = "compatible" | "incompatible" | "unknown";
+
+export interface ExperimentDatasetInformation {
+  datasetId: string;
+  datasetName: string;
+  datasetVersion?: string;
+  fingerprint?: string;
+  trainingRecords?: number;
+  validationRecords?: number;
+  testRecords?: number;
+  featureCount?: number;
+  missingValueStrategy?: string;
+  classImbalanceRatio?: string;
+  evaluationProtocol: string;
+  compatibilityKey: string;
+}
+
+export interface ExperimentModelConfiguration {
+  modelId: string;
+  modelName: string;
+  modelVersion?: string;
+  trainingConfiguration: string;
+  randomSeed?: number;
+  hyperparameters: Record<string, HyperparameterValue>;
+}
+
+export interface ExperimentPreprocessingConfiguration {
+  missingValueHandling?: string;
+  featureSelection?: string;
+  scalingOrTransformations?: string;
+  classWeightingOrResampling?: string;
+}
+
+export interface ExperimentExecutionInformation {
+  startedAt?: string;
+  endedAt?: string;
+  durationSeconds?: number;
+  status: ExperimentRecord["status"];
+}
+
+export interface ExperimentConfigurationSnapshot {
+  modelIdentifier: string;
+  modelVersion?: string;
+  datasetIdentifier: string;
+  datasetVersion?: string;
+  datasetFingerprint?: string;
+  featureSchema: string[];
+  preprocessing: ExperimentPreprocessingConfiguration;
+  classImbalanceStrategy?: string;
+  hyperparameters: Record<string, HyperparameterValue>;
+  classificationThreshold?: number;
+  costWeights?: CostWeights;
+  evaluationSplit?: string;
+  randomSeed?: number;
+  unavailableFields: string[];
+}
+
+export interface ExperimentEvaluationResults {
+  prAuc?: number;
+  precision?: number;
+  recall?: number;
+  f1Score?: number;
+  classificationThreshold?: number;
+  confusionMatrix?: ConfusionMatrix;
+  businessImpact?: BusinessImpactSummary;
+  trainingDurationSeconds?: number;
+}
+
+export interface ExperimentHistoryRecord {
+  id: string;
+  name: string;
+  modelId: string;
+  modelName: string;
+  datasetId: string;
+  datasetName: string;
+  createdAt: string;
+  status: ExperimentRecord["status"];
+  experimentType: ExperimentType;
+  isDemonstration: boolean;
+  evaluationResults: ExperimentEvaluationResults;
+  details: ExperimentDetails;
+}
+
+export interface ExperimentDetails {
+  modelConfiguration: ExperimentModelConfiguration;
+  datasetInformation: ExperimentDatasetInformation;
+  preprocessing: ExperimentPreprocessingConfiguration;
+  execution: ExperimentExecutionInformation;
+  configurationSnapshot: ExperimentConfigurationSnapshot;
+  compatibility: ExperimentComparisonCompatibility;
+  compatibilityNote: string;
+}
+
+export interface ExperimentTrendPoint {
+  experimentId: string;
+  createdAt: string;
+  modelId: string;
+  modelName: string;
+  prAuc?: number;
+  recall?: number;
+  businessCost?: number;
+}
+
+export interface ExperimentRegistrySnapshot {
+  experiments: ExperimentHistoryRecord[];
+  lastUpdated: string;
+  sourceLabel: string;
+}
+
+export interface ExperimentCreationRequest {
+  name: string;
+  modelId: string;
+  datasetId: string;
+  missingValueStrategy: string;
+  classImbalanceStrategy: string;
+  classificationThreshold: number;
+  costWeights: CostWeights;
+}
+
+export interface ExperimentComparisonRequest {
+  experimentIds: string[];
+}
+
+export interface ExperimentReportResponse {
+  experimentId: string;
+  format: "pdf" | "json";
+  source: "backend" | "demo";
+  content?: string;
+}
+
 export interface DashboardSnapshot {
   dataset: DatasetMetadata;
   distribution: DatasetDistribution;

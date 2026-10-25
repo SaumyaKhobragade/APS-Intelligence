@@ -1,0 +1,174 @@
+# APS Intelligence Backend
+
+FastAPI foundation for the APS Intelligence application. This phase provides
+configuration, versioned routing, health checks, SQLite/SQLAlchemy/Alembic
+foundations, centralized errors, CORS and isolated tests. It intentionally does
+not train models, preprocess datasets or perform inference.
+
+## Local setup
+
+Python 3.11+ is supported. The repository was designed to work with a local
+Python installation and does not require AWS configuration for development.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The interactive OpenAPI document is available at `http://127.0.0.1:8000/docs`.
+The first implemented endpoint is:
+
+```text
+GET http://127.0.0.1:8000/api/v1/health
+```
+
+The default SQLite database is a local file under the backend working
+directory. Large datasets and model artifacts belong in `datasets/` and
+`artifacts/`, not in SQLite. Those directories are ignored except for their
+`.gitkeep` markers.
+
+## Architecture
+
+```text
+app/main.py                 application factory, lifespan, middleware, errors
+app/api/                    versioned router composition
+app/core/                   settings, logging and application exceptions
+app/schemas/                Pydantic request/response schemas
+app/database/               SQLAlchemy engine, session dependency, metadata base
+app/models/                 future metadata ORM models
+app/repositories/           future persistence boundaries
+app/services/               future domain/application services
+app/utils/                  safe shared utilities
+artifacts/                  filesystem model artifacts, not database blobs
+datasets/                   filesystem CSV storage, not database blobs
+alembic/                    future schema migration scripts
+tests/                      isolated foundation tests
+```
+
+The backend is a single FastAPI process intended for one EC2 instance and one
+application user. No authentication, user management or microservice split is
+introduced in this phase. Models are expected to be trained offline and loaded
+by later inference services; startup never initiates training.
+
+## Configuration
+
+Configuration is defined in `app/core/config.py` and loaded from environment
+variables or `.env`. Copy `.env.example` to `.env` for local development. The
+important values are:
+
+| Variable | Purpose | Local default |
+| --- | --- | --- |
+| `APP_NAME` | API display name | `APS Intelligence API` |
+| `APP_VERSION` | API version metadata | `0.1.0` |
+| `ENVIRONMENT` | Runtime environment label | `development` |
+| `API_PREFIX` | Versioned API prefix | `/api/v1` |
+| `BACKEND_HOST` / `BACKEND_PORT` | Uvicorn bind settings | `127.0.0.1:8000` |
+| `DATABASE_URL` | SQLAlchemy connection URL | `sqlite:///./aps_intelligence.db` |
+| `ALLOWED_CORS_ORIGINS` | JSON list or comma-separated origins | localhost ports 3000 |
+| `DATASET_STORAGE_DIR` | CSV filesystem directory | `./datasets` |
+| `MODEL_ARTIFACT_DIR` | Offline artifact directory | `./artifacts` |
+| `LOG_LEVEL` | Server log level | `INFO` |
+
+The current frontend `.env.example` points to `http://localhost:8000`, while
+the backend routes are versioned under `/api/v1`. Before connecting the
+frontend, either set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`
+or add the prefix in the shared frontend API client. This phase does not modify
+working frontend functionality.
+
+## Implemented API
+
+### `GET /api/v1/health`
+
+Returns process/API readiness metadata. No production dataset or model data is
+read.
+
+Response `200`:
+
+```json
+{
+  "status": "ok",
+  "application_name": "APS Intelligence API",
+  "application_version": "0.1.0",
+  "environment": "development",
+  "api_status": "operational"
+}
+```
+
+## Proposed API contract mapping
+
+The frontend service files under `frontend/services/` are proposed boundaries,
+not proof that these backend endpoints exist. The backend contract below is the
+starting point for later implementation. Request and response names should be
+kept aligned with `frontend/types/analytics.ts`, while backend-specific fields
+may be added when their provenance is real.
+
+| Method and path | Purpose | Proposed request | Proposed response | Statuses |
+| --- | --- | --- | --- | --- |
+| `GET /api/v1/health` | Service readiness | None | `HealthResponse` | `200`, `500` |
+| `GET /api/v1/dashboard/overview` | Overview analytics | Optional dataset/model filters | `DashboardSnapshot` | `200`, `404`, `503` |
+| `GET /api/v1/datasets` | Dataset metadata registry | Optional dataset type/status filters | `DatasetMetadata[]` | `200`, `503` |
+| `POST /api/v1/datasets/upload` | Store and register a CSV | Multipart `file`, `dataset_type` | `DatasetUploadResponse` | `201`, `400`, `413`, `415`, `422` |
+| `GET /api/v1/models` | List available offline artifacts | Optional status filter | `PredictionModelOption[]` or model metadata list | `200`, `503` |
+| `GET /api/v1/models/compare` | Compare evaluated artifacts | Optional model IDs and evaluation split | `ModelComparisonSnapshot` | `200`, `404`, `503` |
+| `POST /api/v1/predictions` | Predict one sensor row | `PredictionRequest` (`modelId`, readings) | `PredictionResult` | `201`, `400`, `404`, `422`, `503` |
+| `POST /api/v1/predictions/batch` | Predict uploaded rows | Multipart CSV plus model ID | `BatchPredictionResponse` | `202`, `400`, `413`, `415`, `422`, `503` |
+| `GET /api/v1/predictions` | Prediction history | Pagination and filters | `PredictionResult[]` plus pagination metadata | `200`, `503` |
+| `GET /api/v1/thresholds/{model_id}` | Get threshold curve/recommendations | Optional cost weights and split | Threshold evaluation snapshot/curve | `200`, `404`, `422`, `503` |
+| `POST /api/v1/thresholds/evaluate` | Evaluate one operating point | Model ID, threshold, cost weights, validation split | `ThresholdMetrics` with dataset/source metadata | `200`, `400`, `404`, `422`, `503` |
+| `GET /api/v1/experiments` | Search experiment registry | Query, filters, sorting, pagination | `ExperimentRegistrySnapshot` or paginated registry | `200`, `503` |
+| `POST /api/v1/experiments` | Save/start an experiment configuration | `ExperimentCreationRequest` | Queued `ExperimentHistoryRecord` or configuration resource | `201`, `400`, `404`, `422`, `503` |
+| `GET /api/v1/experiments/{experiment_id}` | Retrieve experiment details | Path ID | `ExperimentHistoryRecord` | `200`, `404` |
+
+### Additional frontend-proposed routes
+
+The current frontend also defines service calls for:
+
+- `GET /api/v1/experiments/{id}/results`
+- `POST /api/v1/experiments/compare`
+- `GET /api/v1/experiments/{id}/configuration`
+- `GET /api/v1/experiments/{id}/report?format=pdf|json`
+- `GET /api/v1/thresholds/models`
+- `GET /api/v1/thresholds/{model_id}/curve`
+- `GET /api/v1/thresholds/{model_id}/recommendations`
+- `GET /api/v1/calibration/{model_id}`
+
+These need to be reconciled with the shorter Phase 1 list before the relevant
+backend phases. In particular, `POST /experiments` must decide whether it saves
+only a configuration or also queues execution; this foundation makes no such
+claim. Pagination envelope fields, dataset fingerprint provenance, model
+artifact versioning and report content negotiation also remain decisions for
+the implementation phases.
+
+## Error response contract
+
+Errors use a stable envelope without stack traces:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Request validation failed.",
+    "details": []
+  }
+}
+```
+
+Validation errors use `422`; invalid semantic requests use `400`; missing
+resources use `404`; database failures and unexpected failures use `500`.
+Internal details are logged server-side and are not returned in production
+responses.
+
+## Checks
+
+From `backend/`:
+
+```powershell
+pytest
+python -c "from app.main import app; print(app.title)"
+```
+
+The foundation tests use isolated temporary SQLite URLs and do not require
+production datasets, trained model files or network services.

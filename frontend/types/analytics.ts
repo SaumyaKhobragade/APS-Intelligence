@@ -221,6 +221,75 @@ export interface BusinessImpactSummary {
   estimatedCost: number;
 }
 
+export interface CostWeights {
+  falsePositive: number;
+  falseNegative: number;
+}
+
+export interface ThresholdMetrics {
+  threshold: number;
+  precision: number;
+  recall: number;
+  f1Score: number;
+  falsePositiveCount: number;
+  falseNegativeCount: number;
+  truePositiveCount: number;
+  trueNegativeCount: number;
+  predictedFailureCount: number;
+  totalSamples: number;
+  falsePositiveCost: number;
+  falseNegativeCost: number;
+  businessCost: number;
+}
+
+export interface ThresholdCurvePoint extends ThresholdMetrics {
+  source: "validation_checkpoint";
+}
+
+export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "not_available";
+
+export interface CalibrationPoint {
+  binLabel: string;
+  predictedProbability: number;
+  observedFailureRate: number;
+  sampleCount: number;
+}
+
+export interface ThresholdRecommendation {
+  kind: "minimum_cost" | "maximum_f1" | "default";
+  label: string;
+  explanation: string;
+  metrics: ThresholdMetrics;
+}
+
+export interface ThresholdModelEvaluation {
+  modelId: string;
+  modelName: string;
+  modelType: string;
+  prAuc: number;
+  evaluationDataset: string;
+  evaluationSplit: string;
+  defaultThreshold: number;
+  calibrationStatus: CalibrationStatus;
+  calibrationStatusLabel: string;
+  brierScore?: number;
+  thresholdCurve: ThresholdCurvePoint[];
+  calibrationCurve: CalibrationPoint[];
+  recommendations: {
+    minimumCost: ThresholdRecommendation;
+    maximumF1: ThresholdRecommendation;
+    default: ThresholdRecommendation;
+  };
+}
+
+export interface ThresholdOptimizationSnapshot {
+  models: ThresholdModelEvaluation[];
+  costWeights: CostWeights;
+  evaluationDataset: string;
+  methodologyNote: string;
+  lastUpdated: string;
+}
+
 export interface ExperimentRecord {
   id: string;
   name: string;

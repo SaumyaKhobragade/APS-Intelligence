@@ -1,9 +1,12 @@
 export type {
   BusinessImpactSummary,
+  CalibrationPoint,
+  CalibrationStatus,
   BatchPredictionResponse,
   BatchUploadSummary,
   ClassDistribution,
   ConfusionMatrix,
+  CostWeights,
   DashboardSnapshot,
   DataQualitySummary,
   DatasetMetadata,
@@ -35,4 +38,9 @@ export type {
   PredictionSource,
   PredictionStatus,
   SensorFeatureDefinition,
+  ThresholdCurvePoint,
+  ThresholdMetrics,
+  ThresholdModelEvaluation,
+  ThresholdOptimizationSnapshot,
+  ThresholdRecommendation,
 } from "./analytics";

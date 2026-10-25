@@ -29,12 +29,18 @@ class LogisticRegressionTrainer(ModelTrainer):
             class_weight = {0: imbalance.negative_weight, 1: imbalance.positive_weight}
         else:
             class_weight = None
-        return LogisticRegression(
-            C=config.C,
-            max_iter=config.max_iter,
-            solver=config.solver,
-            penalty=config.penalty,
-            l1_ratio=config.l1_ratio,
-            class_weight=class_weight,
-            random_state=random_seed,
-        )
+        parameters: dict[str, Any] = {
+            "C": config.C,
+            "max_iter": config.max_iter,
+            "solver": config.solver,
+            "class_weight": class_weight,
+            "random_state": random_seed,
+        }
+        # The default regularized penalty is l2 across supported sklearn
+        # versions. Omitting it avoids the deprecation path introduced in
+        # newer sklearn releases while preserving the configured behavior.
+        if config.penalty != "l2":
+            parameters["penalty"] = config.penalty
+        if config.penalty == "elasticnet":
+            parameters["l1_ratio"] = config.l1_ratio
+        return LogisticRegression(**parameters)

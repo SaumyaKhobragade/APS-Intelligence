@@ -1,0 +1,34 @@
+"""Application exceptions shared by future endpoint and service layers."""
+
+
+class AppError(Exception):
+    """Base error with a safe client-facing message and HTTP status."""
+
+    status_code = 400
+    error_code = "application_error"
+
+    def __init__(self, detail: str, *, status_code: int | None = None) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        if status_code is not None:
+            self.status_code = status_code
+
+
+class InvalidRequestError(AppError):
+    """Raised when a request is semantically invalid."""
+
+    error_code = "invalid_request"
+
+
+class ResourceNotFoundError(AppError):
+    """Raised when a requested backend resource does not exist."""
+
+    status_code = 404
+    error_code = "not_found"
+
+
+class DatabaseOperationError(AppError):
+    """Raised when a repository cannot complete a database operation."""
+
+    status_code = 500
+    error_code = "database_error"

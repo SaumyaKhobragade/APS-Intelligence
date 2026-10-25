@@ -1,11 +1,10 @@
 # APS Intelligence Backend
 
-FastAPI backend for the APS Intelligence application. Phase 2 adds filesystem-
-backed dataset ingestion, schema validation, profiling, quality reports,
-reproducible train/validation splitting and model-aware preprocessing artifacts
-on top of the Phase 1 configuration, routing, SQLite/SQLAlchemy/Alembic and
-error-handling foundation. It intentionally does not train models, apply SMOTE,
-select thresholds or perform inference.
+FastAPI backend for the APS Intelligence application. Phase 3 adds a
+filesystem-backed, reproducible model-training pipeline for Logistic Regression,
+Random Forest, XGBoost and CatBoost on top of the Phase 1 foundation and Phase 2
+dataset engineering services. It does not apply SMOTE, optimize thresholds,
+calibrate probabilities or perform inference.
 
 ## Local setup
 
@@ -81,9 +80,10 @@ app/api/                    versioned router composition
 app/core/                   settings, logging and application exceptions
 app/schemas/                Pydantic request/response schemas
 app/database/               SQLAlchemy engine, session dependency, metadata base
-app/models/                 future metadata ORM models
+app/models/                 dataset and training-run metadata ORM models
 app/repositories/           future persistence boundaries
-app/services/               future domain/application services
+app/services/dataset/       ingestion, profiling, preprocessing and splitting
+app/services/model_training/ trainers, evaluation, artifacts and orchestration
 app/utils/                  safe shared utilities
 artifacts/models/           filesystem model artifacts, not database blobs
 artifacts/reports/          generated reports, not database blobs
@@ -95,9 +95,10 @@ tests/                      isolated foundation tests
 ```
 
 The backend is a single FastAPI process intended for one EC2 instance and one
-application user. No authentication, user management or microservice split is
-introduced in this phase. Models are expected to be trained offline and loaded
-by later inference services; startup never initiates training.
+application user. No authentication, user management, Redis, Celery, Docker or
+microservice split is introduced. Training requests return a queued registry
+record and execute through FastAPI background tasks using a worker-local
+database session; model binaries remain on persistent filesystem storage.
 
 ## Configuration
 
@@ -120,6 +121,9 @@ important values are:
 | `REPORT_STORAGE_DIR` | Generated report directory | `./artifacts/reports` |
 | `EXPECTED_FEATURE_COUNT` | Expected APS feature count | `170` |
 | `TARGET_COLUMN_NAME` | Configured target column | `class` |
+| `DEFAULT_CLASSIFICATION_THRESHOLD` | Frozen initial validation threshold | `0.5` |
+| `FALSE_POSITIVE_COST` | Initial business-cost FP weight | `1.0` |
+| `FALSE_NEGATIVE_COST` | Initial business-cost FN weight | `10.0` |
 | `LOG_LEVEL` | Server log level | `INFO` |
 
 The current frontend `.env.example` points to `http://localhost:8000`, while
@@ -156,6 +160,38 @@ Measured APS source facts from the repository files on October 25, 2026:
 - Training features: 170; missing feature values: 850,015 across 169 features.
 - Training quality scan: 0 duplicate rows, one constant feature (`cd_000`), no invalid or infinite values.
 
+## Model training API
+
+The Phase 3 model endpoints are implemented under `/api/v1/models`:
+
+- `GET /api/v1/models` — supported model families, trainer versions and completed-run counts.
+- `POST /api/v1/models/train` — queue one reproducible training run.
+- `GET /api/v1/models/runs` — paginated training-run registry with model/status filters.
+- `GET /api/v1/models/runs/{run_id}` and `/metadata` — run configuration, artifacts and metrics.
+- `GET /api/v1/models/runs/{run_id}/status` — queued/running/completed/failed status.
+- `GET /api/v1/models/runs/{run_id}/metrics` — standardized validation metrics.
+- `GET /api/v1/models/versions/{model_name}` — available trainer/model versions.
+
+Every training run uses the Phase 2 stratified training/validation split and fits
+the preprocessing pipeline on the training partition only. The official APS
+test file is rejected by the training service and is not loaded, transformed,
+used for model selection or used for tuning. Class weighting is explicit and
+recorded; no resampling is silently applied.
+
+The standardized validation report uses PR-AUC (Average Precision) as the
+primary ranking metric and also records ROC-AUC, precision, recall, F1, the
+confusion matrix, TP/TN/FP/FN and an initial configurable business-cost estimate
+at the frozen threshold. The cost is not a final optimized operating cost.
+
+Model binaries, preprocessing pipelines, split metadata and JSON run metadata
+are stored under `MODEL_ARTIFACT_DIR/training/<run_id>/`; SQLite stores only
+registry metadata and artifact references. Apply all migrations before using a
+fresh database:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later
@@ -180,8 +216,9 @@ phases, not claims that Phase 1 has already implemented ML behavior:
   10-page report, at least five recent research papers, references and clearly
   labelled charts/tables.
 
-The backend deliberately contains no model training, SMOTE, threshold selection
-or prediction implementation yet.
+The backend deliberately contains no SMOTE comparison, threshold optimization,
+probability calibration, final cost-sensitive experimentation or prediction
+implementation yet.
 
 ## Implemented API
 
@@ -277,3 +314,6 @@ python -c "from app.main import app; print(app.title)"
 
 The foundation tests use isolated temporary SQLite URLs and do not require
 production datasets, trained model files or network services.
+
+Phase 3 tests use small synthetic imbalanced datasets. The complete test suite
+does not train all four models on the full APS dataset.

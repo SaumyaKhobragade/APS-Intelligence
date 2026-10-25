@@ -92,6 +92,13 @@ class TrainingService:
             scale_pos_weight=scale_pos_weight,
         )
 
+    def _operating_configuration(self, request: TrainingRequest) -> tuple[float, float, float]:
+        return (
+            request.threshold if request.threshold is not None else self.settings.default_classification_threshold,
+            request.false_positive_cost if request.false_positive_cost is not None else self.settings.false_positive_cost,
+            request.false_negative_cost if request.false_negative_cost is not None else self.settings.false_negative_cost,
+        )
+
     @staticmethod
     def _validate_hyperparameters(request: TrainingRequest) -> tuple[Any, dict[str, Any]]:
         try:
@@ -105,6 +112,7 @@ class TrainingService:
         metadata, ingested = self._training_dataset(request.dataset_id)
         trainer, hyperparameters = self._validate_hyperparameters(request)
         imbalance = self._resolve_imbalance(request, ingested.frame, ingested.target_column)
+        threshold, false_positive_cost, false_negative_cost = self._operating_configuration(request)
         run_id = f"run-{uuid4().hex[:20]}"
         paths = training_artifact_paths(self.settings.model_artifact_dir, run_id)
         preprocessing_configuration = {
@@ -129,9 +137,9 @@ class TrainingService:
             status="queued",
             random_seed=request.random_seed,
             validation_ratio=request.validation_ratio,
-            threshold=request.threshold,
-            false_positive_cost=request.false_positive_cost,
-            false_negative_cost=request.false_negative_cost,
+            threshold=threshold,
+            false_positive_cost=false_positive_cost,
+            false_negative_cost=false_negative_cost,
             artifact_directory=str(paths.directory),
             model_artifact_path=str(paths.model),
             preprocessor_artifact_path=str(paths.preprocessor),
@@ -167,6 +175,7 @@ class TrainingService:
                 raise InvalidRequestError("The dataset changed after the training run was queued; the run was rejected.")
             trainer, hyperparameters = self._validate_hyperparameters(request)
             imbalance = self._resolve_imbalance(request, ingested.frame, ingested.target_column)
+            threshold, false_positive_cost, false_negative_cost = self._operating_configuration(request)
             prepared = prepare_training_validation_splits(
                 ingested.frame,
                 target_column=ingested.target_column,
@@ -207,9 +216,9 @@ class TrainingService:
             metrics = evaluate_binary_classifier(
                 validation_target.tolist(),
                 probabilities.tolist(),
-                threshold=request.threshold,
-                false_positive_cost=request.false_positive_cost,
-                false_negative_cost=request.false_negative_cost,
+                threshold=threshold,
+                false_positive_cost=false_positive_cost,
+                false_negative_cost=false_negative_cost,
             )
             paths = training_artifact_paths(self.settings.model_artifact_dir, run_id)
             paths.directory.mkdir(parents=True, exist_ok=True)
@@ -249,7 +258,9 @@ class TrainingService:
                 "dataset_fingerprint": metadata.fingerprint,
                 "random_seed": request.random_seed,
                 "validation_ratio": request.validation_ratio,
-                "threshold": request.threshold,
+                "threshold": threshold,
+                "false_positive_cost": false_positive_cost,
+                "false_negative_cost": false_negative_cost,
                 "preprocessing_configuration": preprocessing_configuration,
                 "hyperparameters": hyperparameters,
                 "class_imbalance_configuration": imbalance_configuration,

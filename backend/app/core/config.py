@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     report_storage_dir: Path = Path("./artifacts/reports")
     expected_feature_count: int = Field(default=170, ge=1)
     target_column_name: str = "class"
+    default_classification_threshold: float = Field(default=0.5, ge=0, le=1)
+    false_positive_cost: float = Field(default=1.0, ge=0)
+    false_negative_cost: float = Field(default=10.0, ge=0)
     log_level: str = "INFO"
 
     @field_validator("api_prefix")

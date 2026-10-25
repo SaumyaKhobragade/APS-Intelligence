@@ -6,7 +6,7 @@ Scania Trucks dataset.
 ## Project layout
 
 - `frontend/` — Next.js, TypeScript and Tailwind application.
-- `backend/` — FastAPI foundation and future analytics API.
+- `backend/` — FastAPI dataset-engineering and model-training API.
 
 See [`backend/README.md`](backend/README.md) for backend setup, architecture,
 dataset-engineering endpoints, validation commands and the proposed later-phase
@@ -29,6 +29,8 @@ PR-AUC as the primary metric; training-only SMOTE; validation-only threshold
 selection; calibration and configurable false-positive/false-negative costs;
 responsive accessible Next.js/FastAPI deployment; reproducible experiments;
 automated tests; and a final report with at least five recent research papers.
-Phase 2 implements ingestion, profiling, quality analysis, leakage-safe
-train/validation preparation and preprocessing artifacts, but does not
-implement those later ML workflows yet.
+Phase 3 adds reproducible Logistic Regression, Random Forest, XGBoost and
+CatBoost training, standardized validation metrics, explicit class weighting,
+filesystem model artifacts and a SQLite-backed training registry. Threshold
+optimization, SMOTE comparisons, calibration, prediction and frontend
+integration remain later phases.

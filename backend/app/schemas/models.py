@@ -32,9 +32,9 @@ class TrainingRequest(BaseModel):
     add_missingness_indicators: bool = False
     validation_ratio: float = Field(default=0.2, gt=0, lt=0.5)
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
-    threshold: float = Field(default=0.5, ge=0, le=1)
-    false_positive_cost: float = Field(default=1.0, ge=0)
-    false_negative_cost: float = Field(default=10.0, ge=0)
+    threshold: float | None = Field(default=None, ge=0, le=1)
+    false_positive_cost: float | None = Field(default=None, ge=0)
+    false_negative_cost: float | None = Field(default=None, ge=0)
     class_imbalance: ClassImbalanceRequest = Field(default_factory=ClassImbalanceRequest)
     hyperparameters: dict[str, Any] = Field(default_factory=dict)
 

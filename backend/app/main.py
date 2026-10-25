@@ -15,7 +15,7 @@ from app.api.router import router as api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging
-from app.database.session import create_database_engine, verify_database_connection
+from app.database.session import create_database_engine, create_session_factory, verify_database_connection
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_storage_directories()
     active_engine = create_database_engine(settings)
     app.state.engine = active_engine
+    app.state.session_factory = create_session_factory(active_engine)
     verify_database_connection(active_engine)
     logger.info("APS Intelligence API started in %s environment", settings.environment)
     try:

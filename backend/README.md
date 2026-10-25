@@ -1,9 +1,11 @@
 # APS Intelligence Backend
 
-FastAPI foundation for the APS Intelligence application. This phase provides
-configuration, versioned routing, health checks, SQLite/SQLAlchemy/Alembic
-foundations, centralized errors, CORS and isolated tests. It intentionally does
-not train models, clean datasets, preprocess features or perform inference.
+FastAPI backend for the APS Intelligence application. Phase 2 adds filesystem-
+backed dataset ingestion, schema validation, profiling, quality reports,
+reproducible train/validation splitting and model-aware preprocessing artifacts
+on top of the Phase 1 configuration, routing, SQLite/SQLAlchemy/Alembic and
+error-handling foundation. It intentionally does not train models, apply SMOTE,
+select thresholds or perform inference.
 
 ## Local setup
 
@@ -50,7 +52,9 @@ The logical storage layout is:
 datasets/
 ├── raw/          original CSV files; never modified by preprocessing
 ├── reference/    dataset documentation and reference files
-└── processed/    generated, versioned preprocessing outputs
+├── processed/    generated, versioned preprocessing outputs
+├── splits/       reproducible split metadata JSON
+└── metadata/     dataset profile JSON artifacts
 
 artifacts/
 ├── models/       offline-trained model artifacts and metadata
@@ -114,6 +118,8 @@ important values are:
 | `DATASET_STORAGE_DIR` | CSV filesystem directory | `./datasets` |
 | `MODEL_ARTIFACT_DIR` | Offline model artifact directory | `./artifacts/models` |
 | `REPORT_STORAGE_DIR` | Generated report directory | `./artifacts/reports` |
+| `EXPECTED_FEATURE_COUNT` | Expected APS feature count | `170` |
+| `TARGET_COLUMN_NAME` | Configured target column | `class` |
 | `LOG_LEVEL` | Server log level | `INFO` |
 
 The current frontend `.env.example` points to `http://localhost:8000`, while
@@ -121,6 +127,34 @@ the backend routes are versioned under `/api/v1`. Before connecting the
 frontend, either set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`
 or add the prefix in the shared frontend API client. This phase does not modify
 working frontend functionality.
+
+## Dataset engineering API
+
+The Phase 2 dataset endpoints are implemented under `/api/v1/datasets`:
+
+- `GET /api/v1/datasets` and `GET /api/v1/datasets/{dataset_id}` — registered metadata.
+- `POST /api/v1/datasets/import` — import a custom CSV without changing the configured APS files.
+- `GET /api/v1/datasets/{dataset_id}/profile` — feature, missing-value, class and quality profile.
+- `GET /api/v1/datasets/{dataset_id}/quality` — duplicate, constant, invalid and infinite-value checks.
+- `GET /api/v1/datasets/{dataset_id}/features` and `/features/{feature_name}` — paginated statistics and correlations.
+- `GET /api/v1/datasets/{dataset_id}/missing-values` and `/class-distribution` — actual missingness and label counts.
+- `POST /api/v1/datasets/{dataset_id}/preprocess` — training-only fitting and versioned CSV/Parquet artifacts.
+- `GET /api/v1/datasets/{dataset_id}/splits` and `/preprocessing-status` — split fingerprints and run metadata.
+
+The official APS test file is never used for preprocessing or split preparation.
+Run the metadata migration before using these endpoints against a fresh SQLite
+database:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+Measured APS source facts from the repository files on October 25, 2026:
+
+- Training: 60,000 records, 59,000 `neg` and 1,000 `pos` (59.00:1).
+- Official test: 16,000 records, 15,625 `neg` and 375 `pos` (41.67:1).
+- Training features: 170; missing feature values: 850,015 across 169 features.
+- Training quality scan: 0 duplicate rows, one constant feature (`cd_000`), no invalid or infinite values.
 
 ## Academic evaluation guardrails
 
@@ -146,8 +180,8 @@ phases, not claims that Phase 1 has already implemented ML behavior:
   10-page report, at least five recent research papers, references and clearly
   labelled charts/tables.
 
-The backend foundation deliberately contains no training, SMOTE, cleaning or
-prediction implementation yet.
+The backend deliberately contains no model training, SMOTE, threshold selection
+or prediction implementation yet.
 
 ## Implemented API
 

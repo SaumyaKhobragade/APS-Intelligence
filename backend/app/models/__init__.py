@@ -1,1 +1,5 @@
-"""SQLAlchemy model package reserved for future metadata tables."""
+"""SQLAlchemy metadata models."""
+
+from app.models.dataset import DatasetMetadata, PreprocessingRun
+
+__all__ = ["DatasetMetadata", "PreprocessingRun"]

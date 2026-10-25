@@ -88,6 +88,6 @@ def test_database_engine_and_session_initialize_in_isolation(tmp_path: Path) -> 
 
     session = create_session_factory(isolated_engine)()
     session.close()
-    dependency_session = next(get_db())
+    dependency_session = next(get_db(None))  # type: ignore[arg-type]
     dependency_session.close()
     isolated_engine.dispose()

@@ -69,6 +69,8 @@ backend/data/
 backend/datasets/raw/*
 backend/datasets/reference/*
 backend/datasets/processed/*
+backend/datasets/splits/*
+backend/datasets/metadata/*
 backend/artifacts/models/*
 backend/artifacts/reports/*
 backend/artifacts/tmp/
@@ -77,6 +79,8 @@ backend/artifacts/tmp/
 !backend/datasets/raw/.gitkeep
 !backend/datasets/reference/.gitkeep
 !backend/datasets/processed/.gitkeep
+!backend/datasets/splits/.gitkeep
+!backend/datasets/metadata/.gitkeep
 !backend/artifacts/models/.gitkeep
 
 # Temporary exports and generated report files outside the backend tree.

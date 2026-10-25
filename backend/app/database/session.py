@@ -4,6 +4,7 @@ from collections.abc import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from fastapi import Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
@@ -28,10 +29,12 @@ def create_session_factory(active_engine: Engine):
 SessionLocal = create_session_factory(engine)
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db(request: Request) -> Generator[Session, None, None]:
     """Yield one request-scoped SQLAlchemy session and always close it."""
 
-    session = SessionLocal()
+    session_factory = getattr(getattr(request, "app", None), "state", None)
+    session_factory = getattr(session_factory, "session_factory", SessionLocal)
+    session = session_factory()
     try:
         yield session
     finally:

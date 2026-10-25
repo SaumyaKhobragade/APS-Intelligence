@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     dataset_storage_dir: Path = Path("./datasets")
     model_artifact_dir: Path = Path("./artifacts/models")
     report_storage_dir: Path = Path("./artifacts/reports")
+    expected_feature_count: int = Field(default=170, ge=1)
+    target_column_name: str = "class"
     log_level: str = "INFO"
 
     @field_validator("api_prefix")
@@ -68,8 +70,42 @@ class Settings(BaseSettings):
         self.dataset_storage_dir.joinpath("raw").mkdir(parents=True, exist_ok=True)
         self.dataset_storage_dir.joinpath("reference").mkdir(parents=True, exist_ok=True)
         self.dataset_storage_dir.joinpath("processed").mkdir(parents=True, exist_ok=True)
+        self.split_storage_dir.mkdir(parents=True, exist_ok=True)
+        self.dataset_metadata_dir.mkdir(parents=True, exist_ok=True)
         self.model_artifact_dir.mkdir(parents=True, exist_ok=True)
         self.report_storage_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def raw_dataset_dir(self) -> Path:
+        return self.dataset_storage_dir / "raw"
+
+    @property
+    def reference_dataset_dir(self) -> Path:
+        return self.dataset_storage_dir / "reference"
+
+    @property
+    def processed_dataset_dir(self) -> Path:
+        return self.dataset_storage_dir / "processed"
+
+    @property
+    def split_storage_dir(self) -> Path:
+        return self.dataset_storage_dir / "splits"
+
+    @property
+    def dataset_metadata_dir(self) -> Path:
+        return self.dataset_storage_dir / "metadata"
+
+    @property
+    def training_dataset_filename(self) -> str:
+        return "aps_failure_training_set.csv"
+
+    @property
+    def official_test_dataset_filename(self) -> str:
+        return "aps_failure_test_set.csv"
+
+    @property
+    def target_column(self) -> str:
+        return self.target_column_name
 
 
 @lru_cache

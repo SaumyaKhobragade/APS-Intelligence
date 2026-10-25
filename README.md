@@ -9,7 +9,8 @@ Scania Trucks dataset.
 - `backend/` — FastAPI foundation and future analytics API.
 
 See [`backend/README.md`](backend/README.md) for backend setup, architecture,
-validation commands and the proposed API contract mapping.
+dataset-engineering endpoints, validation commands and the proposed later-phase
+API contract mapping.
 
 ## Persistent data and evaluation scope
 
@@ -28,4 +29,6 @@ PR-AUC as the primary metric; training-only SMOTE; validation-only threshold
 selection; calibration and configurable false-positive/false-negative costs;
 responsive accessible Next.js/FastAPI deployment; reproducible experiments;
 automated tests; and a final report with at least five recent research papers.
-Phase 1 backend foundation does not implement those ML workflows yet.
+Phase 2 implements ingestion, profiling, quality analysis, leakage-safe
+train/validation preparation and preprocessing artifacts, but does not
+implement those later ML workflows yet.

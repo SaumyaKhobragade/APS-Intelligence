@@ -79,8 +79,8 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
       <div className="mt-auto border-t border-line pt-5">
         <div className="flex items-center justify-between text-xs text-muted">
-          <span className="inline-flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-success" /> Demo service
+           <span className="inline-flex items-center gap-2">
+             <span className="size-1.5 rounded-full bg-success" /> FastAPI service
           </span>
           <span className="font-mono text-[10px]">v0.2</span>
         </div>

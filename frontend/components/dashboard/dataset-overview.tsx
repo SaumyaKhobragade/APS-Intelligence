@@ -20,9 +20,11 @@ interface DatasetOverviewProps {
 }
 
 function DatasetOverview({ snapshot }: DatasetOverviewProps) {
+  const dataset = snapshot.dataset!;
+  const distribution = snapshot.distribution!;
   const distributionData = [
-    { label: "Normal", records: snapshot.distribution.normalRecords, color: "#2A2A2A" },
-    { label: "Failure", records: snapshot.distribution.failureRecords, color: "#E10600" },
+    { label: "Normal", records: distribution.normalRecords, color: "#2A2A2A" },
+    { label: "Failure", records: distribution.failureRecords, color: "#E10600" },
   ];
 
   return (
@@ -41,21 +43,21 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
           <div className="mt-10 grid grid-cols-2 border-y border-line sm:grid-cols-3">
             <div className="border-r border-line py-4 pr-4">
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Records</p>
-              <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-ink">{formatNumber(snapshot.dataset.rowCount)}</p>
+               <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-ink">{formatNumber(dataset.rowCount)}</p>
             </div>
             <div className="border-r border-line py-4 pl-4 pr-4 sm:pl-4">
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Features</p>
-              <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-ink">{snapshot.dataset.featureCount}</p>
+               <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-ink">{dataset.featureCount}</p>
             </div>
             <div className="col-span-2 py-4 sm:col-span-1 sm:pl-4">
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Imbalance</p>
-              <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-signal">{snapshot.distribution.imbalanceRatio}</p>
+               <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-signal">{distribution.imbalanceRatio}</p>
             </div>
           </div>
 
           <div className="mt-8 flex items-start gap-3 border-l-2 border-signal pl-4">
             <Database aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-signal" strokeWidth={1.5} />
-            <p className="text-sm leading-6 text-ink-soft"><span className="font-medium text-ink">{formatNumber(snapshot.dataset.missingValueCount)}</span> missing readings are represented in the demo metadata. The dataset explorer will make that distribution actionable in the next module.</p>
+             <p className="text-sm leading-6 text-ink-soft"><span className="font-medium text-ink">{formatNumber(dataset.missingValueCount)}</span> missing readings are recorded in the persisted dataset profile.</p>
           </div>
         </div>
 
@@ -65,7 +67,7 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Normal vs failure</p>
               <p className="mt-2 text-sm text-ink">Record distribution / demonstration</p>
             </div>
-            <Badge variant="signal">{snapshot.distribution.imbalanceRatio} imbalance</Badge>
+             <Badge variant="signal">{distribution.imbalanceRatio} imbalance</Badge>
           </div>
           <div className="mt-7 h-64 w-full sm:h-72" role="img" aria-label="Bar chart showing normal and failure records">
             <ResponsiveContainer width="100%" height="100%">
@@ -81,8 +83,8 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
             </ResponsiveContainer>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-line pt-4 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-            <span className="inline-flex items-center gap-2"><span className="size-2 bg-charcoal" /> Normal / {formatNumber(snapshot.distribution.normalRecords)}</span>
-            <span className="inline-flex items-center gap-2"><span className="size-2 bg-signal" /> Failure / {formatNumber(snapshot.distribution.failureRecords)}</span>
+             <span className="inline-flex items-center gap-2"><span className="size-2 bg-charcoal" /> Normal / {formatNumber(distribution.normalRecords)}</span>
+             <span className="inline-flex items-center gap-2"><span className="size-2 bg-signal" /> Failure / {formatNumber(distribution.failureRecords)}</span>
             <span className="inline-flex items-center gap-1"><Plus aria-hidden="true" className="size-3" /> Positive class focus</span>
             <span className="inline-flex items-center gap-1"><Minus aria-hidden="true" className="size-3" /> Negative class</span>
           </div>

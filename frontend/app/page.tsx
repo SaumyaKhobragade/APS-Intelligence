@@ -3,33 +3,41 @@
 import * as React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { OverviewDashboard } from "@/components/dashboard/overview-dashboard";
-import { getDemonstrationDashboard } from "@/lib/mock-data";
+import { EmptyState, ErrorState } from "@/components/ui/feedback";
+import { fetchDashboardSnapshot } from "@/services/dashboard-service";
 import type { DashboardSnapshot } from "@/types";
 
 export default function HomePage() {
-  const [snapshot, setSnapshot] = React.useState<DashboardSnapshot>(() => getDemonstrationDashboard());
+  const [snapshot, setSnapshot] = React.useState<DashboardSnapshot | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
-  function refreshDemonstrationData() {
-    setIsRefreshing(true);
-    window.setTimeout(() => {
-      const refreshed = getDemonstrationDashboard();
-      const refreshedAt = new Intl.DateTimeFormat("en-GB", {
-        day: "2-digit",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "UTC",
-      }).format(new Date());
-      setSnapshot({ ...refreshed, lastUpdated: `Demo refreshed / ${refreshedAt} UTC` });
+  const load = React.useCallback(async (refresh = false) => {
+    if (refresh) setIsRefreshing(true); else setIsLoading(true);
+    setError(null);
+    try {
+      setSnapshot(await fetchDashboardSnapshot());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "The dashboard data could not be loaded.");
+    } finally {
+      setIsLoading(false);
       setIsRefreshing(false);
-    }, 650);
-  }
+    }
+  }, []);
+
+  React.useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
   return (
-    <AppShell onRefresh={refreshDemonstrationData} isRefreshing={isRefreshing} lastUpdated={snapshot.lastUpdated}>
-      <OverviewDashboard snapshot={snapshot} />
+    <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Loading backend analytics"}>
+      <div className="mx-auto max-w-[1600px] px-5 py-8 sm:px-8 lg:px-10">
+        {isLoading ? <p className="border border-line bg-surface px-6 py-10 text-center text-sm text-muted" role="status">Loading persisted dashboard analytics…</p> : null}
+        {error ? <ErrorState title="Dashboard unavailable" description={error} onRetry={() => void load()} /> : null}
+        {!isLoading && !error && snapshot && snapshot.dataset === null && snapshot.models.length === 0 && snapshot.recentExperiments.length === 0 ? (
+          <EmptyState title="No persisted dashboard activity" description="The backend is connected, but no model runs, experiments or prediction activity are registered in the active application database." />
+        ) : null}
+        {!isLoading && !error && snapshot ? <OverviewDashboard snapshot={snapshot} /> : null}
+      </div>
     </AppShell>
   );
 }

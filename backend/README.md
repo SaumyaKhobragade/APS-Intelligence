@@ -141,11 +141,14 @@ important values are:
 | `PREDICTION_MODEL_CACHE_SIZE` | Process-local LRU model/calibrator capacity | `8` |
 | `LOG_LEVEL` | Server log level | `INFO` |
 
-The current frontend `.env.example` points to `http://localhost:8000`, while
-the backend routes are versioned under `/api/v1`. Before connecting the
-frontend, either set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`
-or add the prefix in the shared frontend API client. This phase does not modify
-working frontend functionality.
+The frontend `.env.example` points to `http://localhost:8000/api/v1`. The
+frontend normalizes a host-only value by appending `/api/v1`, and all browser
+requests go through its shared API client. Set the complete versioned URL when
+overriding the default:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+```
 
 ## Dataset engineering API
 
@@ -582,9 +585,10 @@ The dashboard returns dataset metadata, registry counts, lifecycle counts,
 promotion state, production prediction counts, recent activity, latest
 validation metrics, artifact-integrity counts and reproducibility metadata.
 Metric records are explicitly scoped as `validation`, `official_test`,
-`synthetic` or `production`. The current backend returns no official-test
-metrics unless a future controlled evaluation records them, and no production
-approval is shown without an explicit Phase 7 promotion.
+`synthetic` or `production`. The active local runtime database currently
+returns no official-test metrics and no production approval. The repository's
+isolated Phase 10 artifact is not automatically imported into this database,
+and no production approval is shown without an explicit Phase 7 promotion.
 
 Dataset analytics reads persisted profile and split artifacts when present,
 returns source-file availability separately and paginates feature statistics.
@@ -621,15 +625,15 @@ frontend environment with:
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-The existing frontend service files currently point at demonstration or legacy
-paths. The Phase 8 canonical mapping is: dashboard to
+The live frontend service mapping is: dashboard to
 `/analytics/dashboard`; Dataset Explorer to `/datasets` plus
 `/analytics/datasets/{id}`; model comparison to `/analytics/models/comparison`;
 threshold workspace to `/analytics/thresholds/{id}`; experiment history to the
 existing `/experiments` and Phase 7 `/models/registry` routes; prediction
 workspace to the Phase 6 `/predictions` routes; and report buttons to the
-export/report routes above. This phase prepares contracts and does not wire the
-Next.js pages to live data.
+export/report routes above. The pages use explicit loading, empty, unavailable
+and error states. Inference is additionally gated by an approved registry
+entry, an active promotion and a compatible active decision policy.
 
 All errors retain the existing `{ "error": { "code", "message", "details" } }`
 envelope. Timestamps are UTC-naive ISO values as already used by the backend
@@ -740,13 +744,12 @@ Response `200`:
 }
 ```
 
-## Proposed API contract mapping
+## Historical proposed API contract mapping
 
-The frontend service files under `frontend/services/` are proposed boundaries,
-not proof that these backend endpoints exist. The backend contract below is the
-starting point for later implementation. Request and response names should be
-kept aligned with `frontend/types/analytics.ts`, while backend-specific fields
-may be added when their provenance is real.
+This table records the original foundation proposal for historical context. The
+implemented routes and the live frontend mapping are documented in the sections
+above. Request and response names remain aligned with the typed frontend
+service boundaries where they are still applicable.
 
 | Method and path | Purpose | Proposed request | Proposed response | Statuses |
 | --- | --- | --- | --- | --- |

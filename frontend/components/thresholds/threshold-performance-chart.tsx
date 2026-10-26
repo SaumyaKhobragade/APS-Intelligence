@@ -4,21 +4,19 @@ import { LineChart as LineChartIcon } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
-import type { CostWeights, ThresholdModelEvaluation } from "@/types";
-import { evaluateThreshold } from "@/lib/threshold-mock-data";
+import type { ThresholdModelEvaluation } from "@/types";
 
 interface ThresholdPerformanceChartProps {
   model: ThresholdModelEvaluation;
   selectedThreshold: number;
-  costWeights: CostWeights;
 }
 
 type MetricKey = "precision" | "recall" | "f1Score" | "businessCost";
 
-function ThresholdPerformanceChart({ model, selectedThreshold, costWeights }: ThresholdPerformanceChartProps) {
+function ThresholdPerformanceChart({ model, selectedThreshold }: ThresholdPerformanceChartProps) {
   const recommendations = model.recommendations;
-  const chartData = model.thresholdCurve.map((point) => ({ ...point, businessCost: evaluateThreshold(model, point.threshold, costWeights).businessCost }));
-  const selectedMetrics = evaluateThreshold(model, selectedThreshold, costWeights);
+  const chartData = model.thresholdCurve.map((point) => ({ ...point, businessCost: point.businessCost }));
+  const selectedMetrics = model.thresholdCurve.reduce((closest, point) => Math.abs(point.threshold - selectedThreshold) < Math.abs(closest.threshold - selectedThreshold) ? point : closest, model.thresholdCurve[0]);
 
   return (
     <section id="performance-curves" aria-labelledby="performance-curves-heading" className="border-b border-line bg-canvas-deep/45 px-5 py-10 sm:px-8 lg:px-10 lg:py-14"><div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">06 / Performance curves</p><h2 id="performance-curves-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">See the threshold path.</h2><p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Explicit validation checkpoints show how precision, recall, F1-score and assumed business cost move as the operating point changes.</p></div><Badge variant="signal"><LineChartIcon aria-hidden="true" className="size-3" /> {model.modelName} / validation</Badge></div><div className="mt-8 grid gap-5 xl:grid-cols-2">{(["precision", "recall", "f1Score", "businessCost"] as MetricKey[]).map((metricKey) => <MetricChart key={metricKey} metricKey={metricKey} data={chartData} selectedThreshold={selectedThreshold} defaultThreshold={model.defaultThreshold} minimumCostThreshold={recommendations.minimumCost.metrics.threshold} maximumF1Threshold={recommendations.maximumF1.metrics.threshold} selectedValue={selectedMetrics[metricKey]} />)}</div><div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted"><span><i className="mr-2 inline-block size-2 rounded-full bg-signal" />selected / {selectedThreshold.toFixed(2)}</span><span><i className="mr-2 inline-block size-2 rounded-full bg-charcoal" />default / {model.defaultThreshold.toFixed(2)}</span><span><i className="mr-2 inline-block size-2 rounded-full bg-success" />min cost / {recommendations.minimumCost.metrics.threshold.toFixed(2)}</span><span><i className="mr-2 inline-block size-2 rounded-full bg-muted" />max F1 / {recommendations.maximumF1.metrics.threshold.toFixed(2)}</span></div></section>

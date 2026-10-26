@@ -15,11 +15,12 @@ interface PredictionHistoryProps {
   models: PredictionModelOption[];
   selectedPredictionId?: string;
   onSelectPrediction: (record: PredictionResult) => void;
+  onExportCsv?: () => void | Promise<void>;
 }
 
 type SortKey = "createdAt" | "failureProbability";
 
-function PredictionHistory({ records, models, selectedPredictionId, onSelectPrediction }: PredictionHistoryProps) {
+function PredictionHistory({ records, models, selectedPredictionId, onSelectPrediction, onExportCsv }: PredictionHistoryProps) {
   const [query, setQuery] = React.useState("");
   const [classFilter, setClassFilter] = React.useState("all");
   const [modelFilter, setModelFilter] = React.useState("all");
@@ -31,6 +32,7 @@ function PredictionHistory({ records, models, selectedPredictionId, onSelectPred
   function requestSort(nextKey: SortKey) { if (sortKey === nextKey) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(nextKey); setSortDirection("desc"); } }
 
   function exportCsv() {
+    if (onExportCsv) { void onExportCsv(); return; }
     const header = "prediction_id,timestamp,model,predicted_class,failure_probability,threshold,status";
     const rows = filtered.map((record) => [record.predictionId, record.createdAt, modelNames.get(record.modelId) ?? record.modelId, record.predictedLabel, record.failureProbability, record.threshold, record.status ?? "completed"].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","));
     const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });

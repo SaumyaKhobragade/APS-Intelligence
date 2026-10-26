@@ -43,4 +43,7 @@ isotonic probability calibration, reliability metrics, decision-policy
 comparisons and reproducible report artifacts. The official APS test dataset
 remains isolated and is reserved for a later frozen-policy evaluation. Final
 prediction APIs are implemented in Backend Phase 6; frontend integration
-remains a later phase.
+remains a later phase. Backend Phase 7 adds experiment lineage, model lifecycle
+tracking, artifact checksums, reversible default-model promotion and
+reproducibility verification; reporting and frontend integration remain later
+phases.

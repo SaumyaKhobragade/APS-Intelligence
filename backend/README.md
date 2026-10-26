@@ -1,6 +1,7 @@
 # APS Intelligence Backend
 
-FastAPI backend for the APS Intelligence application. Phase 6 adds trusted,
+FastAPI backend for the APS Intelligence application. Phase 7 extends the
+Phase 6 trusted,
 cached single-vehicle and bounded batch inference with persisted prediction
 history on top of the Phase 5 validation-only threshold optimization,
 training-only probability calibration and cost-sensitive decision-policy
@@ -90,6 +91,7 @@ app/services/dataset/       ingestion, profiling, preprocessing and splitting
 app/services/model_training/ trainers, evaluation, artifacts and orchestration
 app/services/experimentation/ controlled Phase 4 experiment execution/comparison
 app/services/prediction/    trusted artifact resolution, inference cache and prediction persistence
+app/services/registry.py    unified lineage, lifecycle, promotion and reproducibility checks
 app/utils/                  safe shared utilities
 artifacts/models/           filesystem model artifacts, not database blobs
 artifacts/reports/          generated reports and calibration artifacts, not database blobs
@@ -491,6 +493,72 @@ valid registered production model/policy pair for this inference flow, so no
 real APS prediction was reported and no official APS test-set evaluation was
 performed. Restore genuine trained artifacts and registry rows before calling
 this API with production APS records.
+
+## Phase 7 experiment history, model registry and reproducibility
+
+Phase 7 extends the existing Phase 3/4 training and experiment registries and
+the Phase 6 prediction/policy records. It does not create a second experiment
+history. Each new run records a stable configuration fingerprint, split
+identifier, dependency-version snapshot, lifecycle state and SHA-256 checksums
+for its known filesystem artifacts. Large model, dataset and report files
+remain on persistent filesystem storage; SQLite stores metadata and checksums.
+
+### Registry and lineage endpoints
+
+```text
+GET  /api/v1/models/registry
+GET  /api/v1/models/registry/versions/{model_name}
+GET  /api/v1/models/registry/{training_run|experiment}/{id}
+GET  /api/v1/models/registry/{training_run|experiment}/{id}/lineage
+GET  /api/v1/models/registry/{training_run|experiment}/{id}/artifacts
+GET  /api/v1/models/registry/{training_run|experiment}/{id}/reproducibility
+POST /api/v1/models/registry/{training_run|experiment}/{id}/lifecycle
+GET  /api/v1/models/promotions
+POST /api/v1/models/registry/{training_run|experiment}/{id}/promote
+POST /api/v1/models/promotions/{promotion_id}/revert
+```
+
+The registry list is paginated and supports model, execution/lifecycle status,
+dataset and date filters. Registry detail and lineage return dataset
+fingerprints, split metadata, preprocessing/configuration metadata, model
+version, dependency versions, policy associations and prediction counts without
+returning local filesystem paths. The existing Phase 4 experiment comparison
+and Phase 6 prediction-history routes remain the source APIs for those records.
+
+Lifecycle execution status (`queued`, `running`, `completed`, `failed`) is kept
+separate from registry lifecycle (`registered`, `trained`, `evaluated`,
+`eligible`, `approved`, `archived`, `failed`). A model cannot become trained,
+evaluated or eligible unless its execution, metrics and registered artifacts
+meet the corresponding checks. Archive operations retain database lineage and
+filesystem artifacts; no destructive cleanup is performed.
+
+Promotion is explicit and reversible. It requires an eligible model, a
+compatible registered decision policy, verified artifacts, explicit genuine APS
+evaluation confirmation and evidence. The active promotion is the only
+database-backed default selection used when no environment default is set;
+previous selections remain in promotion history and can be reverted. Synthetic
+fixtures and synthetic experiment results are rejected from production
+promotion. No production-approved model is currently claimed for APS.
+
+Artifact inventory verifies stored SHA-256 checksums and reports missing,
+mismatched or unverified artifacts without exposing paths. Prediction records
+retain the exact model reference/version, configuration fingerprint, policy
+version, calibration reference/checksum and applied threshold, so later
+promotion cannot reinterpret historical predictions.
+
+Reproducibility verification checks the recorded configuration and split
+identifiers, dataset registry/fingerprint and source-file availability,
+artifact checksums and dependency versions. It never retrains and never loads
+the official APS test dataset. Missing source data or dependency mismatches are
+reported as structured blockers. A configuration fingerprint supports stable
+comparison of equivalent configurations and excludes generated IDs and
+timestamps; it is configuration reproducibility, not a guarantee of
+bit-for-bit equality across hardware or library versions.
+
+The local Phase 7 tests use synthetic registry metadata and files only. They do
+not represent APS model quality, do not select a production model and do not
+evaluate the official APS test set. Genuine APS data and a completed approved
+evaluation remain prerequisites for any real promotion.
 
 ## Academic evaluation guardrails
 

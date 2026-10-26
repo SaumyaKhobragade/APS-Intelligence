@@ -48,20 +48,24 @@ function RecentExperiments({ experiments, models }: RecentExperimentsProps) {
               <TableHead className="text-right">Status</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {experiments.map((experiment) => (
-              <TableRow key={experiment.id}>
-                <TableCell>
-                  <p className="font-mono text-xs text-ink">{experiment.id}</p>
-                  <p className="mt-1 text-xs text-muted">{experiment.name}</p>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-ink">{modelNameById.get(experiment.modelId) ?? experiment.modelId}</TableCell>
-                <TableCell className="whitespace-nowrap font-mono text-xs text-muted">{formatExperimentDate(experiment.createdAt)}</TableCell>
-                <TableCell className="font-mono text-xs text-ink">{experiment.metrics ? formatPercent(experiment.metrics.prAuc) : experiment.prAuc === undefined ? "—" : formatPercent(experiment.prAuc)}</TableCell>
-                <TableCell className="text-right"><Badge variant={statusVariant(experiment.status)}>{experiment.status}</Badge></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
+           <TableBody>
+             {experiments.length ? experiments.map((experiment) => (
+               <TableRow key={experiment.id}>
+                 <TableCell>
+                   <p className="font-mono text-xs text-ink">{experiment.id}</p>
+                   <p className="mt-1 text-xs text-muted">{experiment.name}</p>
+                 </TableCell>
+                 <TableCell className="whitespace-nowrap text-xs text-ink">{modelNameById.get(experiment.modelId) ?? experiment.modelId}</TableCell>
+                 <TableCell className="whitespace-nowrap font-mono text-xs text-muted">{formatExperimentDate(experiment.createdAt)}</TableCell>
+                 <TableCell className="font-mono text-xs text-ink">{experiment.metrics ? formatPercent(experiment.metrics.prAuc) : experiment.prAuc === undefined ? "—" : formatPercent(experiment.prAuc)}</TableCell>
+                 <TableCell className="text-right"><Badge variant={statusVariant(experiment.status)}>{experiment.status}</Badge></TableCell>
+               </TableRow>
+             )) : (
+               <TableRow>
+                 <TableCell colSpan={5} className="h-28 text-center text-sm text-muted">No persisted experiment activity is available in the active backend registry.</TableCell>
+               </TableRow>
+             )}
+           </TableBody>
         </Table>
       </div>
     </section>

@@ -28,8 +28,8 @@ function DashboardHeader({
       return;
     }
 
-    toast.info("This module is using demonstration data.", {
-      description: "Refresh will connect to the FastAPI service in a later phase.",
+     toast.info("Refresh is not available for this module.", {
+       description: "This page does not expose a backend refresh action.",
     });
   }
 

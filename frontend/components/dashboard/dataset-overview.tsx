@@ -38,7 +38,7 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
             </div>
             <BarChart3 aria-hidden="true" className="hidden size-5 text-signal sm:block" strokeWidth={1.5} />
           </div>
-          <p className="mt-5 max-w-xl text-sm leading-6 text-muted">The demonstration snapshot makes the imbalance visible before any model score is interpreted. Failure detection is the signal; accuracy alone would hide it.</p>
+           <p className="mt-5 max-w-xl text-sm leading-6 text-muted">The persisted dataset profile makes the imbalance visible before any model score is interpreted. Failure detection is the signal; accuracy alone would hide it.</p>
 
           <div className="mt-10 grid grid-cols-2 border-y border-line sm:grid-cols-3">
             <div className="border-r border-line py-4 pr-4">
@@ -65,7 +65,7 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
           <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Normal vs failure</p>
-              <p className="mt-2 text-sm text-ink">Record distribution / demonstration</p>
+              <p className="mt-2 text-sm text-ink">Record distribution / persisted profile</p>
             </div>
              <Badge variant="signal">{distribution.imbalanceRatio} imbalance</Badge>
           </div>

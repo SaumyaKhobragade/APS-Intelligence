@@ -74,6 +74,7 @@ backend/datasets/metadata/*
 backend/artifacts/models/*
 backend/artifacts/reports/*
 backend/artifacts/phase9/*
+backend/artifacts/phase10/*
 backend/artifacts/tmp/
 
 # Preserve empty storage directory markers.

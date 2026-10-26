@@ -669,6 +669,28 @@ selection report. The candidate is registered with lifecycle `evaluated` and
 status `final_validation_candidate`; no production promotion or official-test
 evaluation is performed.
 
+## Phase 10 official test evaluation
+
+`scripts/phase10_official_test.py` performs the one-time official APS test
+evaluation of `phase9-final-validation-candidate`. It audits the persisted
+pipeline, preprocessor, isotonic calibrator, checksums, lineage, dependency
+snapshot and non-production lifecycle before opening the official test CSV.
+The test run applies persisted artifacts only; it does not fit, retune,
+recalibrate, change the threshold or write to the Phase 9 registry record.
+
+```powershell
+python -m scripts.phase10_official_test
+```
+
+The ignored output directory is
+`artifacts/phase10/official-test-evaluation/`. It contains the official-test
+metrics, confusion matrices, bounded prediction export, comparison of the
+frozen calibrated policy with the predeclared uncalibrated diagnostic,
+calibration/reliability data, PR/ROC curves, stratified bootstrap intervals,
+integrity record and scientific interpretation report. The official-test
+evaluation is an immutable record linked to the Phase 9 candidate and does
+not promote it.
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later

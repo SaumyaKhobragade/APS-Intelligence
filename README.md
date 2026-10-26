@@ -50,4 +50,6 @@ phases. Backend Phase 8 adds consolidated analytics, bounded exports and
 reusable experiment evidence reports; deployment and live frontend wiring
 remain outside this phase. Backend Phase 9 adds a controlled training-only
 model comparison and freezes an explicitly non-production validation candidate;
-official APS test evaluation remains pending.
+official APS test evaluation remains pending. Backend Phase 10 evaluates that
+unchanged candidate once on the isolated official test dataset and preserves
+the result as a separate non-production evaluation record.

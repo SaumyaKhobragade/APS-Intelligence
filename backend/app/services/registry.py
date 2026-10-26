@@ -114,7 +114,7 @@ class ModelRegistryService:
     def _stored_checksums(run: ModelTrainingRun | ExperimentRun) -> dict[str, str]:
         return {key: value for key, value in parse_json_object(getattr(run, "artifact_checksums_json", "{}")).items() if isinstance(value, str)}
 
-    def _inventory(self, reference: RegistryReference, *, persist_backfill: bool = True) -> ArtifactInventoryResponse:
+    def _inventory(self, reference: RegistryReference, *, persist_backfill: bool = False) -> ArtifactInventoryResponse:
         paths = self._paths(self.settings, reference)
         stored = self._stored_checksums(reference.run)
         result = compare_checksums(paths, stored)
@@ -126,7 +126,7 @@ class ModelRegistryService:
             stored = existing
             result = compare_checksums(paths, stored)
         integrity_status = "verified" if result["all_verified"] else "missing" if not result["all_available"] else "mismatch" if any(item["status"] == "mismatch" for item in result["items"]) else "checksum_missing"
-        if getattr(reference.run, "artifact_integrity_status", None) != integrity_status:
+        if persist_backfill and getattr(reference.run, "artifact_integrity_status", None) != integrity_status:
             reference.run.artifact_integrity_status = integrity_status
             self.session.commit()
         return ArtifactInventoryResponse(
@@ -139,8 +139,17 @@ class ModelRegistryService:
             all_verified=result["all_verified"],
         )
 
-    def verify_artifacts(self, reference_type: str, reference_id: str, *, persist_backfill: bool = True) -> ArtifactInventoryResponse:
+    def verify_artifacts(self, reference_type: str, reference_id: str, *, persist_backfill: bool = False) -> ArtifactInventoryResponse:
         return self._inventory(self.resolve(reference_type, reference_id), persist_backfill=persist_backfill)
+
+    def persist_artifact_verification(self, reference_type: str, reference_id: str) -> ArtifactInventoryResponse:
+        """Explicitly persist checksum backfills and the resulting integrity status.
+
+        This write operation is intentionally separate from GET verification so
+        read-only API requests cannot change registry rows.
+        """
+
+        return self._inventory(self.resolve(reference_type, reference_id), persist_backfill=True)
 
     def _prediction_count(self, reference: RegistryReference) -> int:
         return int(
@@ -363,7 +372,7 @@ class ModelRegistryService:
         if target in {"trained", "evaluated", "eligible"} and run.status != "completed":
             raise InvalidRequestError("A model must have a completed execution before lifecycle promotion.")
         if target in {"trained", "evaluated", "eligible"}:
-            inventory = self._inventory(reference)
+            inventory = self._inventory(reference, persist_backfill=True)
             if not inventory.all_available or not inventory.all_verified:
                 raise ArtifactUnavailableError("All registered artifacts must exist and pass checksum verification.")
         if target == "evaluated" and self._metrics(run) is None:
@@ -403,7 +412,7 @@ class ModelRegistryService:
             raise InvalidRequestError("Synthetic fixtures cannot be promoted as production-approved models.")
         if not lifecycle_metadata.get("genuine_aps_evaluation_completed"):
             raise InvalidRequestError("The model has no recorded genuine APS evaluation evidence.")
-        inventory = self._inventory(reference)
+        inventory = self._inventory(reference, persist_backfill=True)
         if not inventory.all_verified:
             raise ArtifactUnavailableError("Promotion requires verified model artifacts.")
         policy = self._policy_for_promotion(reference, request.decision_policy_id)

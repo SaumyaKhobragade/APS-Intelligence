@@ -336,7 +336,7 @@ class InferenceService:
     def _load_training_model(self, run: ModelTrainingRun) -> ResolvedModel:
         paths = training_artifact_paths(self.settings.model_artifact_dir, run.run_id)
         _ensure_under_root(paths.directory, self.settings.model_artifact_dir, "model")
-        inventory = ModelRegistryService(self.settings, self.session).verify_artifacts("training_run", run.run_id)
+        inventory = ModelRegistryService(self.settings, self.session).persist_artifact_verification("training_run", run.run_id)
         if not inventory.all_verified:
             raise ArtifactUnavailableError("Registered training artifacts are missing or failed checksum verification.")
         model_path = _expected_registered_path(run.model_artifact_path, paths.model, "model")
@@ -395,7 +395,7 @@ class InferenceService:
     def _load_experiment_model(self, run: ExperimentRun) -> ResolvedModel:
         paths = experiment_artifact_paths(self.settings.model_artifact_dir, run.experiment_id)
         _ensure_under_root(paths.directory, self.settings.model_artifact_dir, "pipeline")
-        inventory = ModelRegistryService(self.settings, self.session).verify_artifacts("experiment", run.experiment_id)
+        inventory = ModelRegistryService(self.settings, self.session).persist_artifact_verification("experiment", run.experiment_id)
         if not inventory.all_verified:
             raise ArtifactUnavailableError("Registered experiment artifacts are missing or failed checksum verification.")
         pipeline_path = _expected_registered_path(run.pipeline_artifact_path, paths.pipeline, "pipeline")

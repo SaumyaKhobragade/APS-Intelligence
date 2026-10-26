@@ -247,7 +247,8 @@ class ExperimentService:
         for candidate in candidates:
             scores: list[float] = []
             for train_indices, validation_indices in splitter.split(train_x, train_y):
-                fold_pipeline = self._build_pipeline(request, feature_names, frame, target_column)
+                fold_frame = frame.iloc[train_indices]
+                fold_pipeline = self._build_pipeline(request, feature_names, fold_frame, target_column)
                 fold_pipeline.set_params(**candidate)
                 fold_pipeline.fit(train_x.iloc[train_indices], train_y[train_indices])
                 fold_probabilities = fold_pipeline.predict_proba(train_x.iloc[validation_indices])[:, 1]
@@ -352,14 +353,16 @@ class ExperimentService:
             validation_x = cast(pd.DataFrame, prepared.validation[feature_names])
             train_y = prepared.training[ingested.target_column].map(lambda value: 0 if value == "neg" else 1).astype(int).to_numpy()
             validation_y = prepared.validation[ingested.target_column].map(lambda value: 0 if value == "neg" else 1).astype(int).to_numpy()
-            pipeline = self._build_pipeline(request, feature_names, ingested.frame, ingested.target_column)
+            # Resolve class weights from the outer training partition only;
+            # held-out validation labels must not influence fitting.
+            pipeline = self._build_pipeline(request, feature_names, prepared.training, ingested.target_column)
             best_parameters: dict[str, Any] = self._validated_hyperparameters(request)
             search_results: list[dict[str, Any]] = []
             if request.optimize_hyperparameters and request.model_name == "catboost":
                 fitted, best_parameters, search_results = self._manual_catboost_search(
                     request,
                     feature_names,
-                    ingested.frame,
+                    prepared.training,
                     ingested.target_column,
                     train_x,
                     train_y,

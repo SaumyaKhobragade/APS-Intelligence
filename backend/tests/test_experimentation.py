@@ -5,11 +5,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.database.base import Base
 from app.main import create_app
+from app.services.experimentation.service import ExperimentService
+from app.schemas.experiments import ExperimentRequest
 
 
 def synthetic_csv(rows: int = 60) -> str:
@@ -191,3 +194,23 @@ def test_experiment_rejects_official_test_dataset(experiment_client: TestClient)
     )
     assert response.status_code == 400
     assert "isolated" in response.json()["error"]["message"]
+
+
+def test_xgboost_class_weight_can_be_resolved_from_a_training_fold() -> None:
+    frame = synthetic_csv(rows=60)
+    values = [line.split(",") for line in frame.splitlines()[1:]]
+    training_frame = pd.DataFrame(values, columns=["class", "a", "b", "c"])
+    training_frame["a"] = training_frame["a"].astype(float)
+    training_frame["b"] = training_frame["b"].astype(float)
+    training_frame["c"] = pd.to_numeric(training_frame["c"], errors="coerce")
+    request = ExperimentRequest(
+        dataset_id="training-fold",
+        model_name="xgboost",
+        imbalance_strategy="class_weight",
+        preprocessing_strategy="native",
+    )
+    service = ExperimentService(None, None)  # type: ignore[arg-type]
+    fold_frame = training_frame.iloc[:30].copy()
+    fold_frame["class"] = ["pos"] * 5 + ["neg"] * 25
+    pipeline = service._build_pipeline(request, ["a", "b", "c"], fold_frame, "class")
+    assert pipeline.named_steps["model"].scale_pos_weight == 5.0

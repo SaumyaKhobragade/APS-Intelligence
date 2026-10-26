@@ -46,4 +46,6 @@ prediction APIs are implemented in Backend Phase 6; frontend integration
 remains a later phase. Backend Phase 7 adds experiment lineage, model lifecycle
 tracking, artifact checksums, reversible default-model promotion and
 reproducibility verification; reporting and frontend integration remain later
-phases.
+phases. Backend Phase 8 adds consolidated analytics, bounded exports and
+reusable experiment evidence reports; deployment and live frontend wiring
+remain outside this phase.

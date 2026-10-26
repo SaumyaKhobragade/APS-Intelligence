@@ -92,6 +92,8 @@ app/services/model_training/ trainers, evaluation, artifacts and orchestration
 app/services/experimentation/ controlled Phase 4 experiment execution/comparison
 app/services/prediction/    trusted artifact resolution, inference cache and prediction persistence
 app/services/registry.py    unified lineage, lifecycle, promotion and reproducibility checks
+app/services/analytics.py   bounded dashboard, dataset, model and threshold analytics
+app/services/reports.py     JSON, CSV and reusable evidence-PDF exports
 app/utils/                  safe shared utilities
 artifacts/models/           filesystem model artifacts, not database blobs
 artifacts/reports/          generated reports and calibration artifacts, not database blobs
@@ -559,6 +561,80 @@ The local Phase 7 tests use synthetic registry metadata and files only. They do
 not represent APS model quality, do not select a production model and do not
 evaluate the official APS test set. Genuine APS data and a completed approved
 evaluation remain prerequisites for any real promotion.
+
+## Phase 8 analytics, reports and frontend-facing contracts
+
+Phase 8 consolidates recorded Phase 2–7 information for frontend-facing use.
+It does not rerun experiments, load models for dashboard display, load the
+official APS test dataset or invent missing metrics.
+
+### Analytics endpoints
+
+```text
+GET /api/v1/analytics/dashboard
+GET /api/v1/analytics/datasets/{dataset_id}
+GET /api/v1/analytics/models/comparison
+GET /api/v1/analytics/thresholds
+GET /api/v1/analytics/thresholds/{reference_id}
+```
+
+The dashboard returns dataset metadata, registry counts, lifecycle counts,
+promotion state, production prediction counts, recent activity, latest
+validation metrics, artifact-integrity counts and reproducibility metadata.
+Metric records are explicitly scoped as `validation`, `official_test`,
+`synthetic` or `production`. The current backend returns no official-test
+metrics unless a future controlled evaluation records them, and no production
+approval is shown without an explicit Phase 7 promotion.
+
+Dataset analytics reads persisted profile and split artifacts when present,
+returns source-file availability separately and paginates feature statistics.
+Model comparison returns the four supported model families, actual recorded
+runs, split identifiers, validation metrics, confusion counts, cost
+assumptions, durations, curves and feature importance when their artifacts are
+available. Different validation splits remain visibly identified rather than
+being silently merged. Threshold analytics reads the Phase 5 threshold,
+calibration and decision-policy JSON artifacts without duplicating optimization
+logic; missing artifacts produce structured availability notes.
+
+### Reports and exports
+
+```text
+GET /api/v1/exports/experiments/{training_run|experiment}/{id}.json
+GET /api/v1/exports/experiments/{training_run|experiment}/{id}.csv
+GET /api/v1/reports/experiments/{training_run|experiment}/{id}.pdf
+GET /api/v1/exports/models/comparison.csv
+GET /api/v1/exports/predictions.csv
+```
+
+JSON and CSV exports contain persisted registry/validation data only. Prediction
+CSV exports are bounded and support date, model and class filters. The PDF is a
+reusable experiment evidence report with dataset fingerprints, configuration,
+validation results, threshold/calibration availability, reproducibility and
+limitations. It is not a fabricated final academic report. Export references
+are validated, filenames are safe, local paths and secrets are not returned,
+and exports use attachment content types.
+
+The frontend integration boundary is the versioned API prefix. Configure the
+frontend environment with:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+```
+
+The existing frontend service files currently point at demonstration or legacy
+paths. The Phase 8 canonical mapping is: dashboard to
+`/analytics/dashboard`; Dataset Explorer to `/datasets` plus
+`/analytics/datasets/{id}`; model comparison to `/analytics/models/comparison`;
+threshold workspace to `/analytics/thresholds/{id}`; experiment history to the
+existing `/experiments` and Phase 7 `/models/registry` routes; prediction
+workspace to the Phase 6 `/predictions` routes; and report buttons to the
+export/report routes above. This phase prepares contracts and does not wire the
+Next.js pages to live data.
+
+All errors retain the existing `{ "error": { "code", "message", "details" } }`
+envelope. Timestamps are UTC-naive ISO values as already used by the backend
+database/API contracts; clients should render them as UTC. Pagination uses
+`page`, `page_size`, `total` and `items`.
 
 ## Academic evaluation guardrails
 

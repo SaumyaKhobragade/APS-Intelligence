@@ -48,4 +48,6 @@ tracking, artifact checksums, reversible default-model promotion and
 reproducibility verification; reporting and frontend integration remain later
 phases. Backend Phase 8 adds consolidated analytics, bounded exports and
 reusable experiment evidence reports; deployment and live frontend wiring
-remain outside this phase.
+remain outside this phase. Backend Phase 9 adds a controlled training-only
+model comparison and freezes an explicitly non-production validation candidate;
+official APS test evaluation remains pending.

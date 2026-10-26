@@ -636,6 +636,39 @@ envelope. Timestamps are UTC-naive ISO values as already used by the backend
 database/API contracts; clients should render them as UTC. Pagination uses
 `page`, `page_size`, `total` and `items`.
 
+## Phase 9 final scientific validation
+
+`scripts/phase9_validation.py` runs the controlled final comparison using only
+the configured training CSV. It reuses the existing split, preprocessing,
+trainer, evaluation, calibration, threshold, checksum and registry helpers.
+The official APS test CSV is deliberately not opened by the runner.
+
+The bounded design uses the verified 48,000/12,000 seed-42 outer split, three
+stratified CV folds within the 48,000-record training partition, and six search
+configurations per model family. The initial ten-configuration XGBoost attempt
+exceeded the measured local runtime bound, so the final run uses the smaller
+documented budget. Logistic Regression and Random Forest use
+median imputation; XGBoost and CatBoost use native missing-value handling when
+SMOTE is not selected; SMOTE variants use median imputation before the sampler.
+Class weights are resolved from fitting data only, and SMOTE is an in-pipeline
+training-only step.
+
+Run the matrix first, inspect `artifacts/phase9/phase9-final-validation/model_comparison.csv`,
+then freeze the selected candidate explicitly:
+
+```powershell
+python -m scripts.phase9_validation --mode matrix
+python -m scripts.phase9_validation --mode final --candidate random_forest__class_weight
+```
+
+The ignored Phase 9 artifact directory contains the comparison CSV,
+hyperparameter-search CSV, validation metrics, PR/ROC/threshold/confusion
+plots, calibration and reliability artifacts, selected feature importance,
+the final candidate metadata, registry checksum verification and a technical
+selection report. The candidate is registered with lifecycle `evaluated` and
+status `final_validation_candidate`; no production promotion or official-test
+evaluation is performed.
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later

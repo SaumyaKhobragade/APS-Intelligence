@@ -1,4 +1,8 @@
-"""add lifecycle, lineage, checksums and promotion history
+"""add lifecycle, lineage, checksums and promotion history.
+
+The upgrade is intentionally idempotent so the normal migration chain can
+repair partially applied local SQLite schemas while preserving existing
+columns, indexes, tables and rows.
 
 Revision ID: 20261027_0005
 Revises: 20261026_0004
@@ -18,8 +22,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _add_columns(table: str, columns: list[sa.Column]) -> None:
+    bind = op.get_bind()
+    existing = {column["name"] for column in sa.inspect(bind).get_columns(table)}
     for column in columns:
-        op.add_column(table, column)
+        if column.name not in existing:
+            op.add_column(table, column)
+
+
+def _create_index_if_missing(name: str, table: str, column: str) -> None:
+    bind = op.get_bind()
+    existing = {item["name"] for item in sa.inspect(bind).get_indexes(table)}
+    if name not in existing:
+        op.create_index(name, table, [column], unique=False)
 
 
 def upgrade() -> None:
@@ -68,31 +82,33 @@ def upgrade() -> None:
             sa.Column("artifact_checksums_json", sa.Text(), nullable=True),
         ],
     )
-    op.create_table(
-        "model_promotions",
-        sa.Column("promotion_id", sa.String(length=80), nullable=False),
-        sa.Column("model_reference_type", sa.String(length=32), nullable=False),
-        sa.Column("model_reference_id", sa.String(length=80), nullable=False),
-        sa.Column("model_version", sa.String(length=64), nullable=False),
-        sa.Column("decision_policy_id", sa.String(length=80), nullable=False),
-        sa.Column("decision_policy_version", sa.String(length=64), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("previous_promotion_id", sa.String(length=80), nullable=True),
-        sa.Column("genuine_evaluation_confirmed", sa.Boolean(), nullable=False),
-        sa.Column("evaluation_evidence", sa.Text(), nullable=False),
-        sa.Column("note", sa.String(length=500), nullable=True),
-        sa.Column("promoted_at", sa.DateTime(), nullable=False),
-        sa.Column("superseded_at", sa.DateTime(), nullable=True),
-        sa.Column("reverted_at", sa.DateTime(), nullable=True),
-        sa.PrimaryKeyConstraint("promotion_id"),
-    )
+    bind = op.get_bind()
+    if "model_promotions" not in set(sa.inspect(bind).get_table_names()):
+        op.create_table(
+            "model_promotions",
+            sa.Column("promotion_id", sa.String(length=80), nullable=False),
+            sa.Column("model_reference_type", sa.String(length=32), nullable=False),
+            sa.Column("model_reference_id", sa.String(length=80), nullable=False),
+            sa.Column("model_version", sa.String(length=64), nullable=False),
+            sa.Column("decision_policy_id", sa.String(length=80), nullable=False),
+            sa.Column("decision_policy_version", sa.String(length=64), nullable=False),
+            sa.Column("status", sa.String(length=32), nullable=False),
+            sa.Column("previous_promotion_id", sa.String(length=80), nullable=True),
+            sa.Column("genuine_evaluation_confirmed", sa.Boolean(), nullable=False),
+            sa.Column("evaluation_evidence", sa.Text(), nullable=False),
+            sa.Column("note", sa.String(length=500), nullable=True),
+            sa.Column("promoted_at", sa.DateTime(), nullable=False),
+            sa.Column("superseded_at", sa.DateTime(), nullable=True),
+            sa.Column("reverted_at", sa.DateTime(), nullable=True),
+            sa.PrimaryKeyConstraint("promotion_id"),
+        )
     for name, column in (
         ("model_reference_type", "model_reference_type"),
         ("model_reference_id", "model_reference_id"),
         ("decision_policy_id", "decision_policy_id"),
         ("status", "status"),
     ):
-        op.create_index(f"ix_model_promotions_{name}", "model_promotions", [column], unique=False)
+        _create_index_if_missing(f"ix_model_promotions_{name}", "model_promotions", column)
     for table, column in (
         ("model_training_runs", "registry_status"),
         ("model_training_runs", "configuration_fingerprint"),
@@ -102,7 +118,7 @@ def upgrade() -> None:
         ("experiment_runs", "split_identifier"),
         ("predictions", "model_configuration_fingerprint"),
     ):
-        op.create_index(f"ix_{table}_{column}", table, [column], unique=False)
+        _create_index_if_missing(f"ix_{table}_{column}", table, column)
 
     bind = op.get_bind()
     for table, defaults in (

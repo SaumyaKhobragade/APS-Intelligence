@@ -79,8 +79,8 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
       <div className="mt-auto border-t border-line pt-5">
         <div className="flex items-center justify-between text-xs text-muted">
-          <span className="inline-flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-success" /> Demo service
+           <span className="inline-flex items-center gap-2">
+             <span className="size-1.5 rounded-full bg-success" /> FastAPI service
           </span>
           <span className="font-mono text-[10px]">v0.2</span>
         </div>
@@ -104,7 +104,7 @@ interface AppShellProps {
   lastUpdated?: string;
 }
 
-function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Demo snapshot / static" }: AppShellProps) {
+function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Persisted backend data" }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const pathname = usePathname();
   const metadata = pageMetadata[pathname] ?? pageMetadata["/"];
@@ -133,7 +133,7 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "De
               <span className="font-mono text-[10px] uppercase tracking-[0.12em]">{metadata.eyebrow}</span>
             </div>
             <div className="flex items-center gap-3">
-              <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local preview</Badge>
+              <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local backend</Badge>
               <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
                 <Menu aria-hidden="true" className="size-4" />
               </Button>
@@ -152,7 +152,7 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "De
             <div className="flex flex-col gap-3 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
               <span>APS Intelligence / industrial failure prediction &amp; reliability analytics</span>
               <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em]">
-                Scania APS / demo snapshot <ArrowUpRight aria-hidden="true" className="size-3" />
+                 Scania APS / persisted backend data <ArrowUpRight aria-hidden="true" className="size-3" />
               </span>
             </div>
           </footer>

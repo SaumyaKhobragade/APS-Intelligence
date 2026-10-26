@@ -10,6 +10,8 @@ Scania Trucks dataset.
 
 See [`backend/README.md`](backend/README.md) for backend setup, architecture,
 dataset/model/inference endpoints, validation commands and deployment notes.
+See [`frontend/README.md`](frontend/README.md) for frontend setup, API
+configuration, live-data behavior and frontend checks.
 
 ## Persistent data and evaluation scope
 
@@ -40,16 +42,23 @@ experiment artifacts; and comparison APIs.
 Phase 5 adds validation-only threshold optimization, configurable
 false-positive/false-negative business costs, training-only sigmoid and
 isotonic probability calibration, reliability metrics, decision-policy
-comparisons and reproducible report artifacts. The official APS test dataset
-remains isolated and is reserved for a later frozen-policy evaluation. Final
-prediction APIs are implemented in Backend Phase 6; frontend integration
-remains a later phase. Backend Phase 7 adds experiment lineage, model lifecycle
-tracking, artifact checksums, reversible default-model promotion and
-reproducibility verification; reporting and frontend integration remain later
-phases. Backend Phase 8 adds consolidated analytics, bounded exports and
-reusable experiment evidence reports; deployment and live frontend wiring
-remain outside this phase. Backend Phase 9 adds a controlled training-only
-model comparison and freezes an explicitly non-production validation candidate;
-official APS test evaluation remains pending. Backend Phase 10 evaluates that
+comparisons and reproducible report artifacts. Backend Phases 6–8 add trusted
+prediction, registry, reproducibility, analytics, report and export APIs.
+Phase 9 adds a controlled training-only model comparison and freezes an
+explicitly non-production validation candidate. Phase 10 evaluates that
 unchanged candidate once on the isolated official test dataset and preserves
 the result as a separate non-production evaluation record.
+
+The current frontend integration uses the live `/api/v1` backend contracts.
+Dashboard, Dataset Explorer, Model Comparison, Threshold Optimization,
+Experiment History and Failure Prediction load persisted backend data through
+centralized services. Empty, unavailable and backend-error states are shown
+explicitly; the UI does not fall back to demo predictions. Prediction remains
+unavailable until the active registry contains an approved model and compatible
+active decision policy. See [`frontend/README.md`](frontend/README.md) for
+startup, API configuration and verification commands.
+
+The active local runtime database currently contains dataset metadata but no
+approved model/policy pair, so this state is expected during local development.
+The Phase 9 candidate and Phase 10 official-test artifacts remain isolated and
+are not merged into the active prediction registry by frontend startup.

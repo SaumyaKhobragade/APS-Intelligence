@@ -326,6 +326,7 @@ class AnalyticsService:
             imbalance_strategy=run.imbalance_strategy if isinstance(run, ExperimentRun) else imbalance.get("resolved", {}).get("mode"),
             preprocessing_strategy=run.preprocessing_strategy if isinstance(run, ExperimentRun) else preprocessing.get("strategy"),
             hyperparameters=hyperparameters,
+            threshold=run.threshold,
             pr_auc=metrics.get("pr_auc"),
             roc_auc=metrics.get("roc_auc"),
             precision=metrics.get("precision"),

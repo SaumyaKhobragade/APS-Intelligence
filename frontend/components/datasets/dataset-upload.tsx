@@ -7,19 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { formatBytes } from "@/lib/formatters";
 import type { DatasetType } from "@/types";
+import { uploadDataset } from "@/services/dataset-service";
 
 type UploadState = "idle" | "uploading" | "success" | "error";
 
 interface DatasetUploadProps {
-  onUploaded?: (datasetType: DatasetType) => void;
+  onUploaded?: (datasetId: string) => void;
 }
-
-const acceptedFiles = ["aps_failure_training_set.csv", "aps_failure_test_set.csv"];
 
 function DatasetUpload({ onUploaded }: DatasetUploadProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [datasetType, setDatasetType] = React.useState<DatasetType>("training");
-  const [detectedDatasetType, setDetectedDatasetType] = React.useState<DatasetType | null>(null);
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [uploadState, setUploadState] = React.useState<UploadState>("idle");
   const [progress, setProgress] = React.useState(0);
@@ -28,21 +26,12 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
 
   function selectFile(file: File) {
     const normalizedName = file.name.toLowerCase();
-    const detectedType = normalizedName === "aps_failure_test_set.csv" ? "testing" : normalizedName === "aps_failure_training_set.csv" ? "training" : null;
-
     setSelectedFile(null);
-    setDetectedDatasetType(null);
     setUploadState("idle");
     setProgress(0);
 
     if (!normalizedName.endsWith(".csv")) {
       setErrorMessage("CSV files only. Choose an APS training or testing file.");
-      setUploadState("error");
-      return;
-    }
-
-    if (!detectedType) {
-      setErrorMessage("Use aps_failure_training_set.csv or aps_failure_test_set.csv so the dataset role is explicit.");
       setUploadState("error");
       return;
     }
@@ -53,8 +42,6 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
       return;
     }
 
-    setDatasetType(detectedType);
-    setDetectedDatasetType(detectedType);
     setSelectedFile(file);
     setErrorMessage("");
   }
@@ -71,39 +58,29 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
     if (file) selectFile(file);
   }
 
-  function handleUpload() {
+  async function handleUpload() {
     if (!selectedFile) {
       setErrorMessage("Select a supported CSV before starting the upload.");
       setUploadState("error");
       return;
     }
 
-    if (detectedDatasetType && datasetType !== detectedDatasetType) {
-      setErrorMessage(`This filename identifies a ${detectedDatasetType} dataset. Confirm the role before uploading; training and testing files cannot be mixed.`);
-      setUploadState("error");
-      return;
-    }
-
     setUploadState("uploading");
-    setProgress(8);
-    const timer = window.setInterval(() => {
-      setProgress((current) => {
-        const next = Math.min(current + 18, 100);
-        if (next === 100) {
-          window.clearInterval(timer);
-          window.setTimeout(() => {
-            setUploadState("success");
-            onUploaded?.(datasetType);
-          }, 180);
-        }
-        return next;
-      });
-    }, 160);
+    setProgress(30);
+    try {
+      const response = await uploadDataset(selectedFile);
+      setProgress(100);
+      setUploadState("success");
+      onUploaded?.(response.datasetId);
+      setErrorMessage("");
+    } catch (error) {
+      setUploadState("error");
+      setErrorMessage(error instanceof Error ? error.message : "The dataset import failed.");
+    }
   }
 
   function clearFile() {
     setSelectedFile(null);
-    setDetectedDatasetType(null);
     setUploadState("idle");
     setProgress(0);
     setErrorMessage("");
@@ -132,7 +109,7 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
           <input ref={inputRef} id="dataset-file" type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFileInput} />
           {uploadState === "success" ? <Check aria-hidden="true" className="size-7 text-success" strokeWidth={1.5} /> : uploadState === "error" ? <FileWarning aria-hidden="true" className="size-7 text-signal" strokeWidth={1.5} /> : uploadState === "uploading" ? <LoaderCircle aria-hidden="true" className="size-7 animate-spin text-signal" strokeWidth={1.5} /> : <CloudUpload aria-hidden="true" className="size-7 text-signal" strokeWidth={1.5} />}
           <p className="mt-5 font-display text-3xl leading-none text-ink">{uploadState === "success" ? "Upload staged" : uploadState === "uploading" ? "Uploading demo file" : "Drop a CSV here"}</p>
-          <p className="mt-3 max-w-md text-sm leading-6 text-muted">or choose a file from this device. The demo validates the filename and simulates the FastAPI upload boundary.</p>
+           <p className="mt-3 max-w-md text-sm leading-6 text-muted">or choose a CSV file from this device. Imports are sent to the backend custom-dataset boundary; configured APS files remain unchanged.</p>
           <Button className="mt-6" variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={uploadState === "uploading"}>
             Browse files
           </Button>
@@ -162,14 +139,14 @@ function DatasetUpload({ onUploaded }: DatasetUploadProps) {
           {selectedFile ? <div className="mt-6 grid grid-cols-2 gap-4 border-y border-line py-4"><div><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">File size</p><p className="mt-1 font-mono text-sm text-ink">{formatBytes(selectedFile.size)}</p></div><div><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">File type</p><p className="mt-1 font-mono text-sm uppercase text-ink">CSV</p></div></div> : null}
 
           {errorMessage ? <p role="alert" className="mt-5 border-l-2 border-signal bg-signal-wash/40 px-3 py-2 text-xs leading-5 text-ink-soft">{errorMessage}</p> : null}
-          {uploadState === "success" ? <p role="status" className="mt-5 border-l-2 border-success bg-success/10 px-3 py-2 text-xs leading-5 text-ink-soft">{selectedFile?.name} is staged as a {datasetType} dataset. No backend request was made.</p> : null}
+           {uploadState === "success" ? <p role="status" className="mt-5 border-l-2 border-success bg-success/10 px-3 py-2 text-xs leading-5 text-ink-soft">{selectedFile?.name} was imported by the backend without modifying configured APS reference files.</p> : null}
 
           <Button className="mt-6 w-full" variant="signal" onClick={handleUpload} disabled={!selectedFile || uploadState === "uploading"}>
-            {uploadState === "success" ? "Upload again" : "Simulate upload"}
+             {uploadState === "success" ? "Import again" : "Import CSV"}
           </Button>
         </div>
       </div>
-      <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Accepted files: {acceptedFiles.join(" · ")}</p>
+      <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Configured APS source files remain immutable / custom CSV imports are persisted separately</p>
     </section>
   );
 }

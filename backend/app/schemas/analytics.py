@@ -100,6 +100,7 @@ class ModelComparisonItem(BaseModel):
     imbalance_strategy: str | None = None
     preprocessing_strategy: str | None = None
     hyperparameters: dict[str, Any] = Field(default_factory=dict)
+    threshold: float | None = None
     pr_auc: float | None = None
     roc_auc: float | None = None
     precision: float | None = None

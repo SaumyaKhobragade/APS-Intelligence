@@ -5,22 +5,20 @@ import { ArrowDown, ArrowUp, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
-import { getThresholdRecommendations } from "@/lib/threshold-mock-data";
-import type { CostWeights, ThresholdModelEvaluation } from "@/types";
+import type { ThresholdModelEvaluation } from "@/types";
 
 interface ModelThresholdComparisonProps {
   models: ThresholdModelEvaluation[];
-  costWeights: CostWeights;
   selectedModelId: string;
   onSelectModel: (modelId: string) => void;
 }
 
 type SortKey = "businessCost" | "recall" | "precision";
 
-function ModelThresholdComparison({ models, costWeights, selectedModelId, onSelectModel }: ModelThresholdComparisonProps) {
+function ModelThresholdComparison({ models, selectedModelId, onSelectModel }: ModelThresholdComparisonProps) {
   const [sortKey, setSortKey] = React.useState<SortKey>("businessCost");
   const [descending, setDescending] = React.useState(false);
-  const rows = models.map((model) => ({ model, recommendations: getThresholdRecommendations(model, costWeights) }));
+  const rows = models.map((model) => ({ model, recommendations: model.recommendations }));
   const sortedRows = [...rows].sort((a, b) => {
     const left = a.recommendations.minimumCost.metrics[sortKey];
     const right = b.recommendations.minimumCost.metrics[sortKey];

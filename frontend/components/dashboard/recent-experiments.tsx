@@ -25,7 +25,7 @@ function RecentExperiments({ experiments, models }: RecentExperimentsProps) {
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">05 / Recent activity</p>
           <h2 id="recent-experiments-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Keep the last decision close.</h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">A compact trail of evaluation runs gives the dashboard a memory. These rows are demonstrations, not persisted experiments.</p>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">A compact trail of persisted evaluation runs, lifecycle states and validation metrics.</p>
         </div>
         <Button variant="outline" size="sm" asChild>
           <a href="/experiment-history">View all experiments <ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
@@ -35,7 +35,7 @@ function RecentExperiments({ experiments, models }: RecentExperimentsProps) {
       <div className="mt-8 overflow-hidden border-y border-line">
         <div className="flex items-center gap-3 border-b border-line bg-surface px-3 py-4">
           <FlaskConical aria-hidden="true" className="size-4 text-signal" strokeWidth={1.5} />
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Experiment activity / sample results</p>
+           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Experiment activity / persisted records</p>
           <Clock3 aria-hidden="true" className="ml-auto size-4 text-muted" strokeWidth={1.5} />
         </div>
         <Table>
@@ -48,20 +48,24 @@ function RecentExperiments({ experiments, models }: RecentExperimentsProps) {
               <TableHead className="text-right">Status</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {experiments.map((experiment) => (
-              <TableRow key={experiment.id}>
-                <TableCell>
-                  <p className="font-mono text-xs text-ink">{experiment.id}</p>
-                  <p className="mt-1 text-xs text-muted">{experiment.name}</p>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-ink">{modelNameById.get(experiment.modelId) ?? experiment.modelId}</TableCell>
-                <TableCell className="whitespace-nowrap font-mono text-xs text-muted">{formatExperimentDate(experiment.createdAt)}</TableCell>
-                <TableCell className="font-mono text-xs text-ink">{experiment.metrics ? formatPercent(experiment.metrics.prAuc) : "—"}</TableCell>
-                <TableCell className="text-right"><Badge variant={statusVariant(experiment.status)}>{experiment.status}</Badge></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
+           <TableBody>
+             {experiments.length ? experiments.map((experiment) => (
+               <TableRow key={experiment.id}>
+                 <TableCell>
+                   <p className="font-mono text-xs text-ink">{experiment.id}</p>
+                   <p className="mt-1 text-xs text-muted">{experiment.name}</p>
+                 </TableCell>
+                 <TableCell className="whitespace-nowrap text-xs text-ink">{modelNameById.get(experiment.modelId) ?? experiment.modelId}</TableCell>
+                 <TableCell className="whitespace-nowrap font-mono text-xs text-muted">{formatExperimentDate(experiment.createdAt)}</TableCell>
+                 <TableCell className="font-mono text-xs text-ink">{experiment.metrics ? formatPercent(experiment.metrics.prAuc) : experiment.prAuc === undefined ? "—" : formatPercent(experiment.prAuc)}</TableCell>
+                 <TableCell className="text-right"><Badge variant={statusVariant(experiment.status)}>{experiment.status}</Badge></TableCell>
+               </TableRow>
+             )) : (
+               <TableRow>
+                 <TableCell colSpan={5} className="h-28 text-center text-sm text-muted">No persisted experiment activity is available in the active backend registry.</TableCell>
+               </TableRow>
+             )}
+           </TableBody>
         </Table>
       </div>
     </section>

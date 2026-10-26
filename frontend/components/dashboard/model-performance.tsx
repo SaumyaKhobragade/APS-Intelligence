@@ -25,7 +25,7 @@ function shortModelName(modelName: string): string {
 }
 
 function ModelPerformance({ models }: ModelPerformanceProps) {
-  const bestModelId = models.reduce((best, model) => (model.prAuc > best.prAuc ? model : best), models[0]).modelId;
+  const bestModelId = models.length ? models.reduce((best, model) => (model.prAuc > best.prAuc ? model : best), models[0]).modelId : undefined;
   const chartData = models.map((model) => ({
     model: shortModelName(model.modelName),
     "PR-AUC": model.prAuc,
@@ -40,15 +40,15 @@ function ModelPerformance({ models }: ModelPerformanceProps) {
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">03 / Model performance</p>
           <h2 id="model-performance-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Compare the signal, not the headline.</h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Precision-recall metrics keep the rare failure class in view. Values below are clearly marked demonstration results, ready to be replaced by offline artifacts.</p>
+           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Precision-recall metrics keep the rare failure class in view. Only persisted validation results are shown; official-test and production scopes remain separate.</p>
         </div>
-        <Badge variant="neutral"><ChartNoAxesCombined aria-hidden="true" className="size-3" /> 4 sample artifacts</Badge>
+         <Badge variant="neutral"><ChartNoAxesCombined aria-hidden="true" className="size-3" /> {models.length} persisted result{models.length === 1 ? "" : "s"}</Badge>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="min-w-0 border-t border-charcoal bg-charcoal p-5 sm:p-7">
           <div className="flex items-center justify-between border-b border-white/15 pb-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Metric comparison / sample</p>
+             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Metric comparison / validation</p>
             <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver/60">0 — 1 scale</span>
           </div>
           <div className="mt-7 h-72 w-full sm:h-80" role="img" aria-label="Grouped bar chart comparing model metrics">
@@ -95,7 +95,7 @@ function ModelPerformance({ models }: ModelPerformanceProps) {
               ))}
             </TableBody>
           </Table>
-          <p className="border-t border-line px-3 py-4 text-xs leading-5 text-muted">Sample results only. Accuracy is intentionally absent from the primary comparison.</p>
+           <p className="border-t border-line px-3 py-4 text-xs leading-5 text-muted">Validation results only. Accuracy is intentionally absent from the primary comparison.</p>
         </div>
       </div>
     </section>

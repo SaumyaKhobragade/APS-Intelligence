@@ -150,7 +150,7 @@ export type PredictionStatus = "queued" | "processing" | "completed" | "failed";
 
 export type PredictionSource = "single" | "batch";
 
-export type PredictionAvailability = "demo_only" | "not_loaded";
+export type PredictionAvailability = "demo_only" | "not_loaded" | "available";
 
 export interface SensorFeatureDefinition {
   id: string;
@@ -163,8 +163,12 @@ export interface PredictionModelOption {
   modelName: string;
   availability: PredictionAvailability;
   availabilityNote: string;
-  prAuc: number;
+  prAuc?: number;
   defaultThreshold: number;
+  referenceType?: "training_run" | "experiment";
+  referenceId?: string;
+  featureCount?: number;
+  policyId?: string;
 }
 
 export interface FeatureContribution {
@@ -198,6 +202,7 @@ export interface BatchPredictionResponse {
   failedCount: number;
   resultsFileName: string;
   completedAt?: string;
+  firstPrediction?: PredictionResult;
 }
 
 export interface ConfusionMatrix {
@@ -246,7 +251,7 @@ export interface ThresholdCurvePoint extends ThresholdMetrics {
   source: "validation_checkpoint";
 }
 
-export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "not_available";
+export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "completed" | "insufficient_sample" | "failed" | "not_available";
 
 export interface CalibrationPoint {
   binLabel: string;
@@ -280,6 +285,8 @@ export interface ThresholdModelEvaluation {
     maximumF1: ThresholdRecommendation;
     default: ThresholdRecommendation;
   };
+  costWeights?: CostWeights;
+  methodologyNote?: string;
 }
 
 export interface ThresholdOptimizationSnapshot {
@@ -297,6 +304,7 @@ export interface ExperimentRecord {
   datasetId: string;
   status: "queued" | "running" | "completed" | "failed";
   metrics?: ModelMetrics;
+  prAuc?: number;
   confusionMatrix?: ConfusionMatrix;
   createdAt: string;
   completedAt?: string;
@@ -435,12 +443,14 @@ export interface ExperimentReportResponse {
 }
 
 export interface DashboardSnapshot {
-  dataset: DatasetMetadata;
-  distribution: DatasetDistribution;
+  dataset: DatasetMetadata | null;
+  distribution: DatasetDistribution | null;
   models: ModelMetrics[];
-  businessImpact: BusinessImpactSummary;
+  businessImpact: BusinessImpactSummary | null;
   recentExperiments: ExperimentRecord[];
   lastUpdated: string;
+  availability?: { name: string; status: "available" | "unavailable" | "blocked"; message: string }[];
+  sourceLabel?: string;
 }
 
 export interface DatasetExplorerSnapshot {

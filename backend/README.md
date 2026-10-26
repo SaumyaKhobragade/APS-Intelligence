@@ -1,11 +1,14 @@
 # APS Intelligence Backend
 
-FastAPI backend for the APS Intelligence application. Phase 5 adds
-validation-only threshold optimization, training-only probability calibration
-and cost-sensitive decision-policy comparison on top of the Phase 1
-foundation, Phase 2 dataset engineering services, Phase 3 model-training
-registry and Phase 4 controlled experiments. It does not expose individual
-vehicle prediction endpoints or evaluate the official APS test set.
+FastAPI backend for the APS Intelligence application. Phase 6 adds trusted,
+cached single-vehicle and bounded batch inference with persisted prediction
+history on top of the Phase 5 validation-only threshold optimization,
+training-only probability calibration and cost-sensitive decision-policy
+comparison. The Phase 1 foundation, Phase 2 dataset engineering, Phase 3
+model-training registry and Phase 4 controlled experiments remain the source
+of model and preprocessing metadata. Prediction history does not retain the
+170-value sensor payload by default, and the official APS test set is not
+evaluated by the inference layer.
 
 ## Local setup
 
@@ -81,14 +84,15 @@ app/api/                    versioned router composition
 app/core/                   settings, logging and application exceptions
 app/schemas/                Pydantic request/response schemas
 app/database/               SQLAlchemy engine, session dependency, metadata base
-app/models/                 dataset, training-run and experiment metadata ORM models
+app/models/                 dataset, training-run, experiment and prediction metadata ORM models
 app/repositories/           future persistence boundaries
 app/services/dataset/       ingestion, profiling, preprocessing and splitting
 app/services/model_training/ trainers, evaluation, artifacts and orchestration
 app/services/experimentation/ controlled Phase 4 experiment execution/comparison
+app/services/prediction/    trusted artifact resolution, inference cache and prediction persistence
 app/utils/                  safe shared utilities
 artifacts/models/           filesystem model artifacts, not database blobs
-artifacts/reports/          generated reports, not database blobs
+artifacts/reports/          generated reports and calibration artifacts, not database blobs
 datasets/raw/               immutable source files, not database blobs
 datasets/reference/         dataset documentation
 datasets/processed/         generated preprocessing outputs
@@ -126,6 +130,11 @@ important values are:
 | `DEFAULT_CLASSIFICATION_THRESHOLD` | Frozen initial validation threshold | `0.5` |
 | `FALSE_POSITIVE_COST` | Initial business-cost FP weight | `1.0` |
 | `FALSE_NEGATIVE_COST` | Initial business-cost FN weight | `10.0` |
+| `DEFAULT_PREDICTION_RUN_ID` | Explicit default completed training run for inference | unset |
+| `DEFAULT_PREDICTION_EXPERIMENT_ID` | Explicit default completed experiment for inference | unset |
+| `DEFAULT_PREDICTION_POLICY_ID` | Explicit default registered decision policy | unset |
+| `PREDICTION_BATCH_MAX_SIZE` | Maximum records in one synchronous batch | `100` |
+| `PREDICTION_MODEL_CACHE_SIZE` | Process-local LRU model/calibrator capacity | `8` |
 | `LOG_LEVEL` | Server log level | `INFO` |
 
 The current frontend `.env.example` points to `http://localhost:8000`, while
@@ -395,6 +404,94 @@ All reported Phase 5 APS values are validation results. Validation-selected
 thresholds and metrics may be optimistic; no final winning model or production
 policy is declared in this phase.
 
+## Phase 6 prediction and inference API
+
+Phase 6 resolves only completed model or experiment registry rows and their
+server-side artifact paths. Clients cannot submit filesystem paths. A model
+reference is explicit unless `DEFAULT_PREDICTION_RUN_ID` or
+`DEFAULT_PREDICTION_EXPERIMENT_ID` names a valid completed registry row. The
+feature contract is read from the selected artifact metadata and its exact
+ordering is used for inference; the configured count defaults to 170.
+
+### Endpoints
+
+```text
+GET  /api/v1/predictions/models
+GET  /api/v1/predictions/policies
+POST /api/v1/predictions/policies
+GET  /api/v1/predictions/models/{training_run|experiment}/{id}/features
+POST /api/v1/predictions
+POST /api/v1/predictions/batch
+GET  /api/v1/predictions
+GET  /api/v1/predictions/{prediction_id}
+```
+
+`POST /api/v1/predictions/policies` registers a named row from a trusted
+Phase 5 `decision_policies.json` artifact. For calibrated policies, the
+corresponding completed Phase 5 calibration comparison and serialized
+calibrator must exist under `REPORT_STORAGE_DIR/phase5/<reference_id>/`.
+Registration stores the model reference, model version, threshold, calibration
+method and artifact reference together so a policy cannot be combined with a
+different run.
+
+The single-prediction request has this shape; the feature object must contain
+all 170 names returned by the feature-schema endpoint (the names below are
+placeholders, not APS results):
+
+```json
+{
+  "model_run_id": "run-<registered-id>",
+  "decision_policy_id": "policy-<registered-id>",
+  "features": {
+    "<feature-1>": 0.0,
+    "<feature-2>": null,
+    "...": "<remaining feature values>"
+  },
+  "vehicle_identifier": "vehicle-optional",
+  "request_reference": "client-reference-optional",
+  "include_explanation": true
+}
+```
+
+Sensor values must be strict JSON numbers or `null`; strings, objects, arrays,
+NaN and infinity are rejected. `null` is converted to a missing numeric value
+only when the selected preprocessing/model artifact accepts it. Feature-name
+errors report missing and unexpected names separately. The response includes
+the threshold actually applied, calibration method, `pos`/`neg` class,
+probability, risk classification, timestamp, inference duration and optional
+global feature-importance context. `high` means the selected threshold
+predicted `pos`; `low` means it predicted `neg`. No intermediate risk band is
+claimed. A returned probability is a model estimate, not a guaranteed
+real-world failure probability, and global importance is not a per-record
+causal explanation.
+
+Batch requests use the same model, preprocessing, calibration and policy for
+every record, preserve input indexes, return per-record validation errors and
+include positive/negative counts plus total and average model-inference time.
+The maximum size is bounded by `PREDICTION_BATCH_MAX_SIZE` (100 by default).
+Prediction history is persisted in SQLite without the full sensor payload and
+supports page/page_size, model reference, class, vehicle identifier and date
+range filters. Database errors use the existing safe error envelope.
+
+The model/calibrator cache is process-local and LRU-bounded. Cache keys include
+the trusted reference, model version and artifact modification signature, so a
+changed artifact receives a new cache entry; `InferenceCache` also exposes
+explicit model, policy and full-cache invalidation for deployment workflows.
+Artifacts are loaded only from configured directories and registry paths, and
+serialized artifact failures are returned as safe availability or compatibility
+errors without pickle/joblib internals.
+
+### Phase 6 validation status
+
+The Phase 6 tests use small synthetic estimators and records only. They cover
+schema validation, missing values, model loading failures, compatibility,
+cache invalidation, thresholds, calibration, batch handling, persistence,
+history and safe errors. The local ignored runtime directory does not provide a
+valid registered production model/policy pair for this inference flow, so no
+real APS prediction was reported and no official APS test-set evaluation was
+performed. Restore genuine trained artifacts and registry rows before calling
+this API with production APS records.
+
 ## Academic evaluation guardrails
 
 The 15-mark mini-project requirements are architecture constraints for later
@@ -419,10 +516,11 @@ phases, not claims that Phase 1 has already implemented ML behavior:
   10-page report, at least five recent research papers, references and clearly
   labelled charts/tables.
 
-The backend deliberately contains no individual vehicle prediction
-implementation yet. Phase 5 threshold and calibration outputs are validation
-artifacts only; Phase 4 controlled SMOTE comparison and Phase 5 policy
-comparison do not make a final production selection.
+Phase 6 provides individual and batch prediction infrastructure, but does not
+select a final model or policy automatically. Phase 5 threshold and calibration
+outputs remain validation artifacts until an explicit policy is registered.
+Phase 4 controlled SMOTE comparison and Phase 5 policy comparison do not make
+a final production selection.
 
 ## Implemented API
 
@@ -459,8 +557,8 @@ may be added when their provenance is real.
 | `POST /api/v1/datasets/upload` | Store and register a CSV | Multipart `file`, `dataset_type` | `DatasetUploadResponse` | `201`, `400`, `413`, `415`, `422` |
 | `GET /api/v1/models` | List available offline artifacts | Optional status filter | `PredictionModelOption[]` or model metadata list | `200`, `503` |
 | `GET /api/v1/models/compare` | Compare evaluated artifacts | Optional model IDs and evaluation split | `ModelComparisonSnapshot` | `200`, `404`, `503` |
-| `POST /api/v1/predictions` | Predict one sensor row | `PredictionRequest` (`modelId`, readings) | `PredictionResult` | `201`, `400`, `404`, `422`, `503` |
-| `POST /api/v1/predictions/batch` | Predict uploaded rows | Multipart CSV plus model ID | `BatchPredictionResponse` | `202`, `400`, `413`, `415`, `422`, `503` |
+| `POST /api/v1/predictions` | Predict one sensor row | `PredictionRequest` with trusted model/policy reference and feature map | `PredictionResponse` | `201`, `400`, `404`, `409`, `422`, `503` |
+| `POST /api/v1/predictions/batch` | Predict bounded sensor records | JSON records plus trusted model/policy reference | `BatchPredictionResponse` | `200`, `400`, `409`, `413`, `422`, `503` |
 | `GET /api/v1/predictions` | Prediction history | Pagination and filters | `PredictionResult[]` plus pagination metadata | `200`, `503` |
 | `GET /api/v1/thresholds/{model_id}` | Get threshold curve/recommendations | Optional cost weights and split | Threshold evaluation snapshot/curve | `200`, `404`, `422`, `503` |
 | `POST /api/v1/thresholds/evaluate` | Evaluate one operating point | Model ID, threshold, cost weights, validation split | `ThresholdMetrics` with dataset/source metadata | `200`, `400`, `404`, `422`, `503` |

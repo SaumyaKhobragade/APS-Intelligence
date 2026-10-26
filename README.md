@@ -9,8 +9,7 @@ Scania Trucks dataset.
 - `backend/` — FastAPI dataset-engineering and model-training API.
 
 See [`backend/README.md`](backend/README.md) for backend setup, architecture,
-dataset-engineering endpoints, validation commands and the proposed later-phase
-API contract mapping.
+dataset/model/inference endpoints, validation commands and deployment notes.
 
 ## Persistent data and evaluation scope
 
@@ -43,4 +42,5 @@ false-positive/false-negative business costs, training-only sigmoid and
 isotonic probability calibration, reliability metrics, decision-policy
 comparisons and reproducible report artifacts. The official APS test dataset
 remains isolated and is reserved for a later frozen-policy evaluation. Final
-prediction APIs and frontend integration are intentionally deferred.
+prediction APIs are implemented in Backend Phase 6; frontend integration
+remains a later phase.

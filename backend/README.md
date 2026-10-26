@@ -788,6 +788,46 @@ claim. Pagination envelope fields, dataset fingerprint provenance, model
 artifact versioning and report content negotiation also remain decisions for
 the implementation phases.
 
+## Phase 11 historical evidence API
+
+Phase 11.2/11.3 exposes persisted development evidence through a dedicated
+read-only adapter layer. The adapters open `phase3_smoke.db`, `phase4_smoke.db`
+and `phase9_validation.db` with SQLite read-only connections and never merge
+those registries into `aps_intelligence.db`. Model binaries are not loaded for
+metadata or evidence display. Artifact references are resolved beneath the
+trusted model-artifact root and reported with existence, readability and
+checksum status.
+
+The routes are:
+
+- `GET /api/v1/historical-evidence/overview`
+- `GET /api/v1/historical-evidence/training-runs`
+- `GET /api/v1/historical-evidence/experiments`
+- `GET /api/v1/historical-evidence/experiments/{reference_id}`
+- `GET /api/v1/historical-evidence/validation/comparison`
+- `GET /api/v1/historical-evidence/validation/{reference_id}`
+- `GET /api/v1/historical-evidence/thresholds/{reference_id}`
+- `GET /api/v1/historical-evidence/calibration/{reference_id}`
+
+Phase 9 nested metrics use the versioned normalization adapter
+`phase9-validation-nested-v1`. Cross-validation/search evidence is returned in
+a separate field from external validation evidence. The frozen Phase 9
+candidate remains `evaluated`, retains threshold `0.115` and isotonic
+calibration, and is explicitly labelled as not production approved. Missing
+or invalid evidence and unsafe artifact paths return explicit error/status
+information; they are not converted into successful empty results.
+
+Phase 10 official-test evidence is intentionally outside this Phase 11.3
+contract. It remains a separate historical evaluation scope and is not merged
+into validation rankings or the active registry.
+
+Dataset listing and metadata requests use persisted application metadata only.
+Configured raw files are synchronized only by an explicit dataset operation,
+and training synchronization excludes the official test file by default. The
+official test CSV is not read by the historical evidence API or normal dataset
+listing/profile requests. The active database continues to have no approved
+model/policy pair, so the inference gate remains closed.
+
 ## Error response contract
 
 Errors use a stable envelope without stack traces:

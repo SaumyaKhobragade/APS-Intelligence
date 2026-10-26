@@ -53,6 +53,8 @@ from app.services.model_training.artifacts import (
     training_artifact_paths,
 )
 from app.schemas.phase5 import CalibrationComparisonResponse, DecisionPolicyComparisonResponse
+from app.services.registry import ModelRegistryService
+from app.services.reproducibility import parse_json_object, sha256_file
 
 
 logger = logging.getLogger(__name__)
@@ -66,10 +68,13 @@ def utc_now() -> datetime:
 @dataclass(frozen=True)
 class ResolvedPolicy:
     policy_id: str | None
+    policy_version: str | None
     threshold: float
     calibration_method: str
     calibrator: Any | None
     calibration_input: str
+    calibration_artifact_path: str | None
+    calibration_artifact_checksum: str | None
     warnings: list[str]
 
 
@@ -89,6 +94,8 @@ class ResolvedModel:
     feature_importance: list[FeatureContribution]
     artifact_files: tuple[Path, ...]
     default_threshold: float
+    configuration_fingerprint: str | None
+    artifact_checksums: dict[str, str]
 
 
 class InferenceCache:
@@ -319,6 +326,9 @@ class InferenceService:
             return "training_run", self.settings.default_prediction_run_id
         if self.settings.default_prediction_experiment_id:
             return "experiment", self.settings.default_prediction_experiment_id
+        promotion = ModelRegistryService(self.settings, self.session).active_promotion()
+        if promotion is not None:
+            return promotion.model_reference_type, promotion.model_reference_id
         raise InvalidRequestError(
             "A model_run_id or experiment_id is required because no configured default prediction model is registered."
         )
@@ -326,6 +336,9 @@ class InferenceService:
     def _load_training_model(self, run: ModelTrainingRun) -> ResolvedModel:
         paths = training_artifact_paths(self.settings.model_artifact_dir, run.run_id)
         _ensure_under_root(paths.directory, self.settings.model_artifact_dir, "model")
+        inventory = ModelRegistryService(self.settings, self.session).verify_artifacts("training_run", run.run_id)
+        if not inventory.all_verified:
+            raise ArtifactUnavailableError("Registered training artifacts are missing or failed checksum verification.")
         model_path = _expected_registered_path(run.model_artifact_path, paths.model, "model")
         preprocessor_path = _expected_registered_path(run.preprocessor_artifact_path, paths.preprocessor, "preprocessor")
         metadata_path = _expected_registered_path(run.metadata_artifact_path, paths.metadata, "metadata")
@@ -375,11 +388,16 @@ class InferenceService:
             feature_importance=_feature_importance_from_estimator(model, output_names),
             artifact_files=artifacts,
             default_threshold=run.threshold,
+            configuration_fingerprint=run.configuration_fingerprint,
+            artifact_checksums=parse_json_object(run.artifact_checksums_json),
         )
 
     def _load_experiment_model(self, run: ExperimentRun) -> ResolvedModel:
         paths = experiment_artifact_paths(self.settings.model_artifact_dir, run.experiment_id)
         _ensure_under_root(paths.directory, self.settings.model_artifact_dir, "pipeline")
+        inventory = ModelRegistryService(self.settings, self.session).verify_artifacts("experiment", run.experiment_id)
+        if not inventory.all_verified:
+            raise ArtifactUnavailableError("Registered experiment artifacts are missing or failed checksum verification.")
         pipeline_path = _expected_registered_path(run.pipeline_artifact_path, paths.pipeline, "pipeline")
         preprocessor_path = _expected_registered_path(run.preprocessor_artifact_path, paths.preprocessor, "preprocessor")
         metadata_path = _expected_registered_path(run.metadata_artifact_path, paths.metadata, "metadata")
@@ -436,6 +454,8 @@ class InferenceService:
             ),
             artifact_files=artifacts,
             default_threshold=run.threshold,
+            configuration_fingerprint=run.configuration_fingerprint,
+            artifact_checksums=parse_json_object(run.artifact_checksums_json),
         )
 
     def resolve_model(self, reference: PredictionReference) -> ResolvedModel:
@@ -476,12 +496,19 @@ class InferenceService:
     def _resolve_policy(self, reference: PredictionReference, model: ResolvedModel) -> ResolvedPolicy:
         policy_id = reference.decision_policy_id or self.settings.default_prediction_policy_id
         if not policy_id:
+            promotion = ModelRegistryService(self.settings, self.session).active_promotion()
+            if promotion and promotion.model_reference_type == model.reference_type and promotion.model_reference_id == model.reference_id:
+                policy_id = promotion.decision_policy_id
+        if not policy_id:
             return ResolvedPolicy(
                 policy_id=None,
+                policy_version=None,
                 threshold=model.default_threshold,
                 calibration_method="uncalibrated",
                 calibrator=None,
                 calibration_input="none",
+                calibration_artifact_path=None,
+                calibration_artifact_checksum=None,
                 warnings=["No decision policy reference was supplied; the selected model run threshold was applied."],
             )
         policy = self.session.get(DecisionPolicy, policy_id)
@@ -497,7 +524,7 @@ class InferenceService:
             raise ArtifactCompatibilityError("The decision policy threshold is outside the valid probability range.")
         method = policy.calibration_method or "uncalibrated"
         if method in {"none", "uncalibrated"}:
-            return ResolvedPolicy(policy.policy_id, policy.threshold, "uncalibrated", None, "none", [])
+            return ResolvedPolicy(policy.policy_id, policy.policy_version, policy.threshold, "uncalibrated", None, "none", None, None, [])
         if method not in {"isotonic", "sigmoid"}:
             raise ArtifactCompatibilityError("The decision policy specifies an unsupported calibration method.")
         if not policy.calibration_artifact_path:
@@ -513,6 +540,13 @@ class InferenceService:
             calibrator_path = _expected_registered_path(policy.calibration_artifact_path, legacy_path, "calibration")
             calibration_input = "probability"
         _require_file(calibrator_path, "calibration")
+        actual_calibration_checksum = sha256_file(calibrator_path)
+        if policy.calibration_artifact_checksum and policy.calibration_artifact_checksum != actual_calibration_checksum:
+            raise ArtifactCompatibilityError("The decision-policy calibration artifact checksum does not match the registry.")
+        if not policy.calibration_artifact_checksum:
+            policy.calibration_artifact_checksum = actual_calibration_checksum
+            policy.artifact_integrity_status = "verified"
+            self.session.commit()
         key = ("calibration", policy.policy_id, method, _artifact_signature((calibrator_path,)))
         try:
             calibrator = self.cache.get_calibrator(key, lambda: load_joblib(calibrator_path))
@@ -526,7 +560,7 @@ class InferenceService:
             raise ArtifactCompatibilityError("The feature-based calibration artifact does not expose predict_proba.")
         if calibration_input == "probability" and not hasattr(calibrator, "predict") and not hasattr(calibrator, "transform") and not hasattr(calibrator, "predict_proba"):
             raise ArtifactCompatibilityError("The calibration artifact does not expose a supported prediction interface.")
-        return ResolvedPolicy(policy.policy_id, policy.threshold, method, calibrator, calibration_input, [])
+        return ResolvedPolicy(policy.policy_id, policy.policy_version, policy.threshold, method, calibrator, calibration_input, str(calibrator_path), actual_calibration_checksum, [])
 
     def _validate_sensor_record(self, record: SensorRecord, model: ResolvedModel) -> pd.DataFrame:
         provided = set(record.features)
@@ -603,6 +637,7 @@ class InferenceService:
         return DecisionPolicySummary(
             policy_id=policy.policy_id,
             policy_name=policy.policy_name,
+            policy_version=policy.policy_version,
             model_reference_type=policy.model_reference_type,  # type: ignore[arg-type]
             model_reference_id=policy.model_reference_id,
             model_version=policy.model_version,
@@ -635,6 +670,7 @@ class InferenceService:
             raise ResourceNotFoundError(f"Decision policy '{request.policy_name}' was not found for model '{model.reference_id}'.") from exc
 
         calibration_path: Path | None = None
+        calibration_checksum: str | None = None
         calibration_method = row.calibration_method
         if calibration_method != "uncalibrated":
             _require_file(paths.calibration, "calibration comparison")
@@ -652,6 +688,9 @@ class InferenceService:
                 "calibration",
             )
             _require_file(calibration_path, "calibration")
+            calibration_checksum = sha256_file(calibration_path)
+            if method_result.artifact_checksum and method_result.artifact_checksum != calibration_checksum:
+                raise ArtifactCompatibilityError("The calibration artifact checksum does not match the Phase 5 calibration metadata.")
 
         existing = self.session.scalar(
             select(DecisionPolicy).where(
@@ -666,6 +705,7 @@ class InferenceService:
                 or existing.threshold != row.decision_threshold
                 or existing.calibration_method != calibration_method
                 or existing.calibration_artifact_path != (str(calibration_path) if calibration_path else None)
+                or existing.calibration_artifact_checksum != calibration_checksum
             ):
                 raise ArtifactCompatibilityError("The persisted decision policy no longer matches the Phase 5 policy artifact.")
             return self._policy_summary(existing)
@@ -674,6 +714,7 @@ class InferenceService:
         policy = DecisionPolicy(
             policy_id=f"policy-{uuid4().hex[:20]}",
             policy_name=row.policy_name,
+            policy_version="1",
             model_reference_type=model.reference_type,
             model_reference_id=model.reference_id,
             model_version=model.model_version,
@@ -681,6 +722,8 @@ class InferenceService:
             threshold=row.decision_threshold,
             calibration_method=calibration_method,
             calibration_artifact_path=str(calibration_path) if calibration_path else None,
+            calibration_artifact_checksum=calibration_checksum,
+            artifact_integrity_status="verified",
             false_positive_cost=comparison.false_positive_cost,
             false_negative_cost=comparison.false_negative_cost,
             risk_configuration_json=json.dumps(
@@ -695,6 +738,7 @@ class InferenceService:
                     "source": "phase5_decision_policy_comparison",
                     "policy_name": row.policy_name,
                     "calibration_input": "features" if calibration_path else "none",
+                    "source_artifact_checksum": sha256_file(paths.decision_policies),
                 }
             ),
             created_at=now,
@@ -717,10 +761,14 @@ class InferenceService:
             model_run_id=record.model_reference_id if record.model_reference_type == "training_run" else None,
             experiment_id=record.model_reference_id if record.model_reference_type == "experiment" else None,
             decision_policy_id=record.decision_policy_id,
+            decision_policy_version=record.decision_policy_version,
             predicted_class=record.predicted_class,  # type: ignore[arg-type]
             failure_probability=record.failure_probability,
             applied_threshold=record.applied_threshold,
             calibration_method=record.calibration_method,
+            calibration_artifact_reference=Path(record.calibration_artifact_reference).name if record.calibration_artifact_reference else None,
+            calibration_artifact_checksum=record.calibration_artifact_checksum,
+            model_configuration_fingerprint=record.model_configuration_fingerprint,
             risk_classification=record.risk_classification,  # type: ignore[arg-type]
             prediction_timestamp=record.prediction_timestamp,
             inference_duration_ms=record.inference_duration_ms,
@@ -756,11 +804,16 @@ class InferenceService:
             model_reference_id=model.reference_id,
             model_version=model.model_version,
             decision_policy_id=policy.policy_id,
+            decision_policy_version=policy.policy_version,
             predicted_class=predicted_class,
             raw_failure_probability=float(raw_probability),
             failure_probability=float(probability),
             applied_threshold=policy.threshold,
             calibration_method=policy.calibration_method,
+            calibration_artifact_reference=Path(policy.calibration_artifact_path).name if policy.calibration_artifact_path else None,
+            calibration_artifact_checksum=policy.calibration_artifact_checksum,
+            model_configuration_fingerprint=model.configuration_fingerprint,
+            artifact_checksums_json=json.dumps(model.artifact_checksums),
             risk_classification="high" if probability >= policy.threshold else "low",
             vehicle_identifier=record.vehicle_identifier,
             request_reference=record.request_reference,

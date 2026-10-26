@@ -41,6 +41,7 @@ from app.services.model_training.artifacts import (
     save_json,
 )
 from app.services.probability_calibration import CalibrationFit, fit_calibration_methods
+from app.services.reproducibility import sha256_file
 from app.services.threshold_optimization import evaluate_threshold_point, optimize_thresholds
 
 
@@ -313,8 +314,8 @@ class Phase5Service:
             result = fit.result
             if fit.calibrator is not None and result.status == "completed":
                 artifact_name = f"calibrator_{result.method}.joblib"
-                save_joblib(fit.calibrator, paths.directory / artifact_name)
-                result = result.model_copy(update={"artifact_reference": artifact_name})
+                artifact_path = save_joblib(fit.calibrator, paths.directory / artifact_name)
+                result = result.model_copy(update={"artifact_reference": artifact_name, "artifact_checksum": sha256_file(artifact_path)})
             results.append(result)
         response = CalibrationComparisonResponse(
             reference=context.reference,

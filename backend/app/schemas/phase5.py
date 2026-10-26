@@ -227,6 +227,7 @@ class CalibrationMethodResult(BaseModel):
     expected_calibration_error: float | None
     reliability_curve: list[ReliabilityPoint]
     artifact_reference: str | None = None
+    artifact_checksum: str | None = None
     reason: str | None = None
 
 

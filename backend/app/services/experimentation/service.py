@@ -51,6 +51,7 @@ from app.services.model_training.artifacts import (
 from app.services.model_training.evaluation import build_curve_data, evaluate_binary_classifier
 from app.services.model_training.trainers.base import ImbalanceSettings
 from app.services.model_training.trainers.registry import get_trainer
+from app.services.reproducibility import checksum_paths, configuration_fingerprint, dependency_versions
 
 
 logger = logging.getLogger(__name__)
@@ -274,7 +275,15 @@ class ExperimentService:
         paths = experiment_artifact_paths(self.settings.model_artifact_dir, experiment_id)
         configuration = request.model_dump(mode="json")
         configuration["resolved_hyperparameters"] = self._validated_hyperparameters(request)
+        configuration["feature_names_before"] = list(ingested.feature_columns)
         configuration["test_isolation_note"] = "The official APS test dataset is isolated from experimentation."
+        configuration_fp = configuration_fingerprint(
+            {
+                "schema_version": 1,
+                "dataset_fingerprint": metadata.fingerprint,
+                "configuration": configuration,
+            }
+        )
         run = ExperimentRun(
             experiment_id=experiment_id,
             model_name=trainer.name,
@@ -282,6 +291,7 @@ class ExperimentService:
             dataset_id=metadata.dataset_id,
             dataset_fingerprint=metadata.fingerprint,
             status="queued",
+            registry_status="registered",
             imbalance_strategy=request.imbalance_strategy,
             preprocessing_strategy=request.preprocessing_strategy,
             optimize_hyperparameters=request.optimize_hyperparameters,
@@ -307,6 +317,11 @@ class ExperimentService:
             training_class_counts_json="{}",
             validation_class_counts_json="{}",
             created_at=_utc_now(),
+            configuration_fingerprint=configuration_fp,
+            library_versions_json=json.dumps(dependency_versions()),
+            artifact_checksums_json="{}",
+            artifact_integrity_status="pending",
+            lifecycle_metadata_json="{}",
         )
         self.session.add(run)
         self.session.commit()
@@ -319,6 +334,7 @@ class ExperimentService:
             raise ResourceNotFoundError(f"Experiment '{experiment_id}' was not found.")
         started = time.perf_counter()
         run.status = "running"
+        run.started_at = _utc_now()
         self.session.commit()
         try:
             metadata, ingested = self._training_dataset(request.dataset_id)
@@ -427,6 +443,13 @@ class ExperimentService:
                     else "none"
                 ),
             }
+            run.configuration_fingerprint = configuration_fingerprint(
+                {
+                    "schema_version": 1,
+                    "dataset_fingerprint": metadata.fingerprint,
+                    "configuration": configuration,
+                }
+            )
             metadata_payload = {
                 "experiment_id": experiment_id,
                 "configuration": configuration,
@@ -439,9 +462,25 @@ class ExperimentService:
                 "inference_duration_seconds": inference_duration,
                 "artifacts": {"pipeline": str(paths.pipeline), "preprocessor": str(paths.preprocessor), "curves": str(paths.curves), "feature_importance": str(paths.feature_importance)},
                 "test_isolation_note": split_payload["test_isolation_note"],
+                "configuration_fingerprint": run.configuration_fingerprint,
+                "library_versions": dependency_versions(),
             }
+            checksums = checksum_paths(
+                {
+                    "pipeline": paths.pipeline,
+                    "preprocessor": paths.preprocessor,
+                    "splits": paths.split_metadata,
+                    "curves": paths.curves,
+                    "feature_importance": paths.feature_importance,
+                    "confusion_matrix": paths.confusion_matrix_visualization,
+                }
+            )
+            metadata_payload["artifact_checksums"] = checksums
             save_json(metadata_payload, paths.metadata)
+            checksums["metadata"] = checksum_paths({"metadata": paths.metadata})["metadata"]
+            split_identifier = "|".join(summary.fingerprint for summary in prepared.summaries)
             run.status = "completed"
+            run.registry_status = "evaluated"
             run.configuration_json = json.dumps(configuration)
             run.best_parameters_json = json.dumps(best_parameters)
             run.search_results_json = json.dumps(search_results)
@@ -455,12 +494,18 @@ class ExperimentService:
             run.training_duration_seconds = duration
             run.inference_duration_seconds = inference_duration
             run.completed_at = _utc_now()
+            run.split_identifier = split_identifier
+            run.library_versions_json = json.dumps(dependency_versions())
+            run.artifact_checksums_json = json.dumps(checksums)
+            run.artifact_integrity_status = "verified"
             self.session.commit()
             self.session.refresh(run)
             return run
         except Exception as exc:
             run.status = "failed"
+            run.registry_status = "failed"
             run.error_message = str(exc)
+            run.artifact_integrity_status = "failed"
             run.training_duration_seconds = time.perf_counter() - started
             run.completed_at = _utc_now()
             self.session.commit()

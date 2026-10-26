@@ -99,6 +99,7 @@ def prediction_environment(tmp_path: Path) -> dict[str, Any]:
             ),
             encoding="utf-8",
         )
+        paths.split_metadata.write_text(json.dumps({"synthetic": True}), encoding="utf-8")
         session = application.state.session_factory()
         session.add(
             DatasetMetadata(

@@ -103,10 +103,14 @@ class PredictionResponse(BaseModel):
     model_run_id: str | None = None
     experiment_id: str | None = None
     decision_policy_id: str | None = None
+    decision_policy_version: str | None = None
     predicted_class: PredictionClass
     failure_probability: float = Field(ge=0, le=1)
     applied_threshold: float = Field(ge=0, le=1)
     calibration_method: str
+    calibration_artifact_reference: str | None = None
+    calibration_artifact_checksum: str | None = None
+    model_configuration_fingerprint: str | None = None
     risk_classification: PredictionRisk
     prediction_timestamp: datetime
     inference_duration_ms: float = Field(ge=0)
@@ -150,6 +154,7 @@ class BatchPredictionResponse(BaseModel):
 class DecisionPolicySummary(BaseModel):
     policy_id: str
     policy_name: str
+    policy_version: str = "1"
     model_reference_type: ModelReferenceType
     model_reference_id: str
     model_version: str

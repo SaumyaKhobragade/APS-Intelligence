@@ -40,6 +40,7 @@ from app.services.model_training.artifacts import (
 from app.services.model_training.evaluation import evaluate_binary_classifier
 from app.services.model_training.trainers.base import ImbalanceSettings
 from app.services.model_training.trainers.registry import get_trainer, list_trainers
+from app.services.reproducibility import checksum_paths, configuration_fingerprint, dependency_versions
 
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,21 @@ class TrainingService:
             "positive_records": int((ingested.frame[ingested.target_column] == "pos").sum()),
             "resampling": "none",
         }
+        configuration_payload = {
+            "schema_version": 1,
+            "dataset_fingerprint": metadata.fingerprint,
+            "feature_names": list(ingested.feature_columns),
+            "model_name": trainer.name,
+            "model_version": trainer.version,
+            "preprocessing": preprocessing_configuration,
+            "hyperparameters": hyperparameters,
+            "imbalance": imbalance_configuration,
+            "validation_ratio": request.validation_ratio,
+            "random_seed": request.random_seed,
+            "threshold": threshold,
+            "false_positive_cost": false_positive_cost,
+            "false_negative_cost": false_negative_cost,
+        }
         run = ModelTrainingRun(
             run_id=run_id,
             model_name=trainer.name,
@@ -135,6 +151,7 @@ class TrainingService:
             dataset_id=metadata.dataset_id,
             dataset_fingerprint=metadata.fingerprint,
             status="queued",
+            registry_status="registered",
             random_seed=request.random_seed,
             validation_ratio=request.validation_ratio,
             threshold=threshold,
@@ -153,6 +170,11 @@ class TrainingService:
             training_records=0,
             validation_records=0,
             created_at=utc_now(),
+            configuration_fingerprint=configuration_fingerprint(configuration_payload),
+            library_versions_json=json.dumps(dependency_versions()),
+            artifact_checksums_json="{}",
+            artifact_integrity_status="pending",
+            lifecycle_metadata_json="{}",
         )
         self.session.add(run)
         self.session.commit()
@@ -250,6 +272,23 @@ class TrainingService:
                 "positive_records": int((ingested.frame[ingested.target_column] == "pos").sum()),
                 "resampling": "none",
             }
+            run.configuration_fingerprint = configuration_fingerprint(
+                {
+                    "schema_version": 1,
+                    "dataset_fingerprint": metadata.fingerprint,
+                    "feature_names": feature_names,
+                    "model_name": trainer.name,
+                    "model_version": trainer.version,
+                    "preprocessing": preprocessing_configuration,
+                    "hyperparameters": hyperparameters,
+                    "imbalance": imbalance_configuration,
+                    "validation_ratio": request.validation_ratio,
+                    "random_seed": request.random_seed,
+                    "threshold": threshold,
+                    "false_positive_cost": false_positive_cost,
+                    "false_negative_cost": false_negative_cost,
+                }
+            )
             metadata_payload = {
                 "run_id": run_id,
                 "model_name": trainer.name,
@@ -275,9 +314,22 @@ class TrainingService:
                     "splits": str(paths.split_metadata),
                 },
                 "test_isolation_note": split_payload["test_isolation_note"],
+                "configuration_fingerprint": run.configuration_fingerprint,
+                "library_versions": dependency_versions(),
             }
+            checksums = checksum_paths(
+                {
+                    "model": paths.model,
+                    "preprocessor": paths.preprocessor,
+                    "splits": paths.split_metadata,
+                }
+            )
+            metadata_payload["artifact_checksums"] = checksums
             save_json(metadata_payload, paths.metadata)
+            checksums["metadata"] = checksum_paths({"metadata": paths.metadata})["metadata"]
+            split_identifier = "|".join(summary.fingerprint for summary in prepared.summaries)
             run.status = "completed"
+            run.registry_status = "evaluated"
             run.metrics_json = json.dumps(metrics.model_dump(mode="json"))
             run.confusion_matrix_json = json.dumps(metrics.confusion_matrix.model_dump(mode="json"))
             run.preprocessing_configuration_json = json.dumps(preprocessing_configuration)
@@ -289,6 +341,10 @@ class TrainingService:
             run.validation_records = len(prepared.validation)
             run.training_duration_seconds = duration
             run.completed_at = utc_now()
+            run.split_identifier = split_identifier
+            run.library_versions_json = json.dumps(dependency_versions())
+            run.artifact_checksums_json = json.dumps(checksums)
+            run.artifact_integrity_status = "verified"
             run.model_artifact_path = str(paths.model)
             run.preprocessor_artifact_path = str(paths.preprocessor)
             run.metadata_artifact_path = str(paths.metadata)
@@ -299,9 +355,11 @@ class TrainingService:
         except Exception as exc:
             duration = time.perf_counter() - started_clock
             run.status = "failed"
+            run.registry_status = "failed"
             run.training_duration_seconds = duration
             run.completed_at = utc_now()
             run.error_message = str(exc)
+            run.artifact_integrity_status = "failed"
             self.session.commit()
             logger.exception("Training run %s failed", run_id)
             return run

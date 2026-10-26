@@ -7,9 +7,10 @@ class AppError(Exception):
     status_code = 400
     error_code = "application_error"
 
-    def __init__(self, detail: str, *, status_code: int | None = None) -> None:
+    def __init__(self, detail: str, *, status_code: int | None = None, details: object | None = None) -> None:
         super().__init__(detail)
         self.detail = detail
+        self.details = details
         if status_code is not None:
             self.status_code = status_code
 
@@ -32,3 +33,17 @@ class DatabaseOperationError(AppError):
 
     status_code = 500
     error_code = "database_error"
+
+
+class ArtifactUnavailableError(AppError):
+    """Raised when a trusted model or policy artifact cannot be loaded."""
+
+    status_code = 503
+    error_code = "artifact_unavailable"
+
+
+class ArtifactCompatibilityError(AppError):
+    """Raised when registered metadata and serialized artifacts disagree."""
+
+    status_code = 409
+    error_code = "artifact_incompatible"

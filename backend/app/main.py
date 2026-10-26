@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging
 from app.database.session import create_database_engine, create_session_factory, verify_database_connection
+from app.services.prediction.inference import InferenceCache
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     active_engine = create_database_engine(settings)
     app.state.engine = active_engine
     app.state.session_factory = create_session_factory(active_engine)
+    app.state.inference_cache = InferenceCache(settings.prediction_model_cache_size)
     verify_database_connection(active_engine)
     logger.info("APS Intelligence API started in %s environment", settings.environment)
     try:
@@ -54,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(
         title=active_settings.app_name,
         version=active_settings.app_version,
-        description="Foundation API for APS Intelligence reliability analytics.",
+        description="APS Intelligence dataset, model, policy and vehicle-inference API.",
         lifespan=lifespan,
     )
     application.state.settings = active_settings
@@ -69,7 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.exception_handler(AppError)
     async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
-        return _error_response(exc.error_code, exc.detail, status_code=exc.status_code)
+        return _error_response(exc.error_code, exc.detail, details=exc.details, status_code=exc.status_code)
 
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:

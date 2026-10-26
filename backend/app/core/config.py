@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     default_classification_threshold: float = Field(default=0.5, ge=0, le=1)
     false_positive_cost: float = Field(default=1.0, ge=0)
     false_negative_cost: float = Field(default=10.0, ge=0)
+    default_prediction_run_id: str | None = Field(default=None, min_length=1, max_length=80)
+    default_prediction_experiment_id: str | None = Field(default=None, min_length=1, max_length=80)
+    default_prediction_policy_id: str | None = Field(default=None, min_length=1, max_length=80)
+    prediction_batch_max_size: int = Field(default=100, ge=1, le=1000)
+    prediction_model_cache_size: int = Field(default=8, ge=1, le=64)
     log_level: str = "INFO"
 
     @field_validator("api_prefix")

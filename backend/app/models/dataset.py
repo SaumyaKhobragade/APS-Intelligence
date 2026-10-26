@@ -13,7 +13,7 @@ class DatasetMetadata(Base):
 
     __tablename__ = "dataset_metadata"
 
-    dataset_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(String(80), primary_key=True, index=True)
     dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dataset_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_file_name: Mapped[str] = mapped_column(String(255), nullable=False)

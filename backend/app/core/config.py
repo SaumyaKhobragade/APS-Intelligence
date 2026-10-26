@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     default_prediction_policy_id: str | None = Field(default=None, min_length=1, max_length=80)
     prediction_batch_max_size: int = Field(default=100, ge=1, le=1000)
     prediction_model_cache_size: int = Field(default=8, ge=1, le=64)
+    analytics_export_max_rows: int = Field(default=5000, ge=100, le=100_000)
+    analytics_feature_page_max_size: int = Field(default=200, ge=1, le=1000)
     log_level: str = "INFO"
 
     @field_validator("api_prefix")

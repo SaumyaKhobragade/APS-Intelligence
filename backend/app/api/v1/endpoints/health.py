@@ -33,13 +33,15 @@ def health(
         liveness_status = "alive"
 
         # 1. Database readiness check
-        try:
-            active_engine = getattr(request.app.state, "engine", None)
-            if active_engine is not None:
+        active_engine = getattr(request.app.state, "engine", None)
+        if active_engine is None:
+            database_status = "unavailable"
+        else:
+            try:
                 verify_database_connection(active_engine)
-            database_status = "operational"
-        except Exception:
-            database_status = "unreachable"
+                database_status = "operational"
+            except Exception:
+                database_status = "unreachable"
 
         # 2. Storage write-access diagnostic check
         try:

@@ -251,12 +251,15 @@ Add the following job to `crontab -e` for daily automated backups at 02:00 UTC:
 
 ### 5.5 Database Restoration Procedure
 The restore utility enforces mandatory safety checks:
-1. Validates SQLite integrity (`PRAGMA integrity_check`).
-2. Validates schema compatibility and supported Alembic revision (`20261027_0005`).
-3. Refuses to restore if the target is locked by a running backend process.
-4. Automatically takes a safety snapshot of the target before touching it.
-5. Restores into a temporary database first, verifies it, then performs an atomic swap.
+1. **Service Manager Verification**: Enforces that the production `aps-backend` systemd service is completely stopped (`systemctl is-active aps-backend`) before proceeding. Restore refuses to proceed if the service is running.
+2. **Explicit Non-Systemd Confirmation Guard**: In non-systemd or test environments where `systemctl` is not present, requires `--confirmed-offline-maintenance` to prevent accidental overwrites.
+3. **Supplementary Process Lock Detection**: Uses SQLite exclusive locking checks to verify no stray background processes hold active SQLite transactions.
+4. **Sidecar (-wal, -shm, -journal) Isolation & Archival**: Detects existing sidecar files, archives them alongside the safety snapshot, and cleanly removes stale sidecars upon atomic database swap so that restored databases never inherit corrupt or stale WAL/SHM pages.
+5. **Pre-flight Integrity & Alembic Verification**: Validates SQLite integrity (`PRAGMA integrity_check`) and schema compatibility / supported Alembic revision (`20261027_0005`) on the backup file.
+6. **Mandatory Safety Snapshot**: Automatically creates a timestamped safety backup of the active database (and any active sidecars) before any modification.
+7. **Staging Database Verification & Atomic Replacement**: Restores into a temporary staging database first, verifies it, and performs an atomic swap (`os.replace`). If any step fails, the original database and sidecars remain completely untouched.
 
+#### Production Restore Sequence (Linux / systemd)
 ```bash
 # 1. Stop backend service
 sudo systemctl stop aps-backend
@@ -270,6 +273,16 @@ cd /opt/aps-intelligence/backend
 # 3. Restart backend service & verify health
 sudo systemctl start aps-backend
 curl http://127.0.0.1:8000/api/v1/health?verbose=true
+```
+
+#### Non-Production / Test / Container Restore Sequence
+```bash
+# In environments where systemd is not running, provide explicit confirmation:
+cd /opt/aps-intelligence/backend
+.venv/bin/python scripts/db_ops.py restore \
+    --backup-file /var/data/aps-intelligence/data/backups/aps_intelligence_backup_YYYYMMDD_HHMMSS.db \
+    --target /var/data/aps-intelligence/data/aps_intelligence.db \
+    --confirmed-offline-maintenance
 ```
 
 ---

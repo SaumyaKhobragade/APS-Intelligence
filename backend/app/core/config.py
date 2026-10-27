@@ -1,7 +1,7 @@
 """Centralized environment-backed application settings."""
 
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Annotated
 
 from pydantic import Field, field_validator, model_validator
@@ -19,9 +19,22 @@ BACKEND_BASE_DIR: Path = Path(__file__).resolve().parents[2]
 
 
 def is_path_absolute(path_str: str) -> bool:
-    """Return True if path string represents an absolute path on POSIX or Windows."""
-    p = Path(path_str)
-    return p.is_absolute() or path_str.startswith("/") or path_str.startswith("\\")
+    """Return True if path string represents an absolute path on POSIX or Windows.
+
+    Reliably recognizes:
+    - POSIX absolute paths (e.g. /var/data/aps.db)
+    - Windows drive letter paths on any platform (e.g. C:/data/aps.db, C:\\data\\aps.db)
+    - Windows UNC network paths (e.g. \\\\server\\share\\data)
+    """
+    if not path_str or not path_str.strip():
+        return False
+    trimmed = path_str.strip()
+    return (
+        PurePosixPath(trimmed).is_absolute()
+        or PureWindowsPath(trimmed).is_absolute()
+        or trimmed.startswith("/")
+        or trimmed.startswith("\\")
+    )
 
 
 class Settings(BaseSettings):

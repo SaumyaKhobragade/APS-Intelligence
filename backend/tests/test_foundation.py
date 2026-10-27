@@ -74,6 +74,23 @@ def test_verbose_health_database_failure_reports_degraded(test_settings: Setting
             assert data["readiness"] == "not_ready"
 
 
+def test_verbose_health_missing_engine_reports_unavailable(test_settings: Settings) -> None:
+    from app.main import create_app
+
+    app = create_app(test_settings)
+    with TestClient(app) as test_client:
+        # Simulate uninitialized / missing engine
+        test_client.app.state.engine = None
+        response = test_client.get("/api/v1/health?verbose=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["database"] == "unavailable"
+        assert data["storage"] == "operational"
+        assert data["liveness"] == "alive"
+        assert data["readiness"] == "not_ready"
+
+
 def test_startup_creates_configured_storage_layout(client: TestClient, test_settings: Settings) -> None:
     assert test_settings.persistent_storage_dir.is_dir()
     assert test_settings.dataset_storage_dir.joinpath("raw").is_dir()

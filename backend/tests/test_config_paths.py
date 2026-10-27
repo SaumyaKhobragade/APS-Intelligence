@@ -7,12 +7,29 @@ from app.core.config import BACKEND_BASE_DIR, Settings, is_path_absolute
 
 
 def test_is_path_absolute_detects_posix_and_windows() -> None:
+    # POSIX paths
     assert is_path_absolute("/var/data/aps.db")
-    assert is_path_absolute("\\var\\data\\aps.db")
+    assert is_path_absolute("/opt/aps-intelligence/backend/data/aps.db")
+
+    # Windows forward and backward slash paths
     assert is_path_absolute("C:/data/aps.db")
+    assert is_path_absolute("C:\\data\\aps.db")
+    assert is_path_absolute("D:/aps/database.sqlite")
+    assert is_path_absolute("E:\\Projects\\APS-Intelligence\\backend\\data\\aps.db")
+
+    # Windows UNC network paths
+    assert is_path_absolute("\\\\server\\share\\data.db")
+    assert is_path_absolute("//server/share/data.db")
+
+    # Relative paths must NOT be detected as absolute
     assert not is_path_absolute("./data/aps.db")
-    assert not is_path_absolute("data/aps.db")
+    assert not is_path_absolute(".\\data\\aps.db")
     assert not is_path_absolute("../data/aps.db")
+    assert not is_path_absolute("..\\data\\aps.db")
+    assert not is_path_absolute("data/aps.db")
+    assert not is_path_absolute("aps.db")
+    assert not is_path_absolute("")
+    assert not is_path_absolute("   ")
 
 
 def test_default_relative_paths_resolve_to_backend_base_dir() -> None:

@@ -12,8 +12,11 @@ from datetime import datetime, timezone
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 import sys
+from typing import Callable
 
 # Ensure backend root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -122,6 +125,44 @@ def is_database_locked(db_path: Path) -> bool:
         return False
 
 
+def get_sqlite_sidecars(db_path: Path) -> dict[str, Path]:
+    """Detect existing SQLite sidecar files (-wal, -shm, -journal)."""
+    sidecars: dict[str, Path] = {}
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar_path = Path(f"{db_path.as_posix()}{suffix}")
+        if sidecar_path.exists():
+            sidecars[suffix] = sidecar_path
+    return sidecars
+
+
+def check_systemd_service_status(service_name: str = "aps-backend") -> tuple[bool | None, str]:
+    """Query systemd to check whether the specified service is currently active.
+
+    Returns:
+        (True, status_str): Service is running (active).
+        (False, status_str): Service is stopped (inactive/failed/unknown).
+        (None, reason_str): systemctl is not available or not on Linux.
+    """
+    systemctl_bin = shutil.which("systemctl")
+    if not systemctl_bin:
+        return None, "systemctl command not found (non-systemd environment)"
+
+    try:
+        res = subprocess.run(
+            [systemctl_bin, "is-active", service_name],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+        output = res.stdout.strip() or res.stderr.strip()
+        if res.returncode == 0:
+            return True, output or "active"
+        return False, output or f"inactive (exit code {res.returncode})"
+    except (subprocess.SubprocessError, OSError) as e:
+        return None, f"Failed to execute systemctl: {e}"
+
+
 def get_table_counts(db_path: Path) -> dict[str, int]:
     """Query row counts for all user tables in target database."""
     counts: dict[str, int] = {}
@@ -186,16 +227,22 @@ def backup_database(
 def restore_database(
     backup_file: Path,
     target_db: Path = DEFAULT_DB_PATH,
+    confirmed_offline_maintenance: bool = False,
     skip_process_lock_check: bool = False,
+    service_name: str = "aps-backend",
+    service_status_checker: Callable[[str], tuple[bool | None, str]] | None = None,
 ) -> None:
     """Safely restore a SQLite database from a verified backup.
-    
+
     Guarantees:
+    - Service manager verification (refuses restore if aps-backend service is active).
+    - Operator confirmation required when systemd is unavailable (non-systemd / test env).
     - Pre-flight integrity and schema compatibility verification on the backup file.
-    - Active process lock detection to refuse restoring over a running database.
+    - Active process lock detection as supplementary safeguard.
+    - Sidecar (-wal, -shm, -journal) inspection, safety archiving, and clean isolation.
     - Mandatory safety snapshot before touching an existing target database.
     - Staging restore into a temporary database followed by verification.
-    - Atomic replacement so target is never partially overwritten on failure.
+    - Atomic replacement so target and sidecars are never partially overwritten on failure.
     """
     if not backup_file.exists():
         raise FileNotFoundError(f"Backup file not found: {backup_file}")
@@ -212,12 +259,48 @@ def restore_database(
     print(f"[+] Backup file SQLite integrity: {msg}")
     print(f"[+] Backup file schema check: {schema_msg}")
 
-    # Check whether target database is locked by active process
-    if target_db.exists() and not skip_process_lock_check:
+    # Check service status via service manager (systemd on Linux)
+    checker = service_status_checker or check_systemd_service_status
+    service_active, service_msg = checker(service_name)
+
+    if service_active is True:
+        raise RuntimeError(
+            f"Cannot restore: APS backend service '{service_name}' is actively running ({service_msg}). "
+            f"Restore must not replace database while service is running. "
+            f"Stop the service first: sudo systemctl stop {service_name}"
+        )
+    elif service_active is False:
+        print(f"[+] Verified service '{service_name}' is stopped ({service_msg}).")
+    else:  # service_active is None (non-systemd or systemctl missing)
+        is_confirmed = confirmed_offline_maintenance or skip_process_lock_check
+        if not is_confirmed:
+            raise RuntimeError(
+                f"Service manager (systemd) is not available to verify service status ({service_msg}). "
+                "To perform database restore in a non-systemd or test environment, provide "
+                "'--confirmed-offline-maintenance' (or confirmed_offline_maintenance=True)."
+            )
+        print(f"[*] Non-systemd environment: proceeding with confirmed offline maintenance ({service_msg}).")
+
+    # Detect and preserve any existing sidecars (-wal, -shm, -journal)
+    sidecars = get_sqlite_sidecars(target_db)
+    sidecar_snapshots: dict[str, bytes] = {}
+    if sidecars:
+        print(f"[!] Warning: Detected existing SQLite sidecar files: {[p.name for p in sidecars.values()]}")
+        for suffix, p in sidecars.items():
+            if p.exists():
+                try:
+                    sidecar_snapshots[suffix] = p.read_bytes()
+                except OSError:
+                    pass
+                if p.stat().st_size > 0:
+                    print(f"    - {p.name}: {p.stat().st_size:,} bytes (may contain uncommitted transactions if stopped ungracefully)")
+
+    # Supplementary check: active process lock on target database file
+    if target_db.exists():
         if is_database_locked(target_db):
             raise RuntimeError(
-                f"Target database '{target_db}' is locked by a running process. "
-                "Shut down the active backend service (e.g. 'sudo systemctl stop aps-backend') before restoring."
+                f"Target database '{target_db}' is locked by an active process. "
+                "Ensure all database connections and backend processes are fully closed before restoring."
             )
 
     # Mandatory safety snapshot if target database already exists
@@ -229,9 +312,15 @@ def restore_database(
         print(f"[*] Target database exists. Creating mandatory safety snapshot at: {safety_dir / safety_name}")
         backup_database(source_db=target_db, backup_dir=safety_dir, custom_name=safety_name)
 
+        # Archive existing sidecar files alongside the safety backup
+        for suffix, data in sidecar_snapshots.items():
+            sidecar_backup = safety_dir / f"{safety_name}{suffix}"
+            sidecar_backup.write_bytes(data)
+            print(f"    Preserved sidecar snapshot: {sidecar_backup}")
+
     target_db.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    temp_target = target_db.with_name(f"{target_db.name}.tmp_restore_{timestamp}")
+    timestamp_tmp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    temp_target = target_db.with_name(f"{target_db.name}.tmp_restore_{timestamp_tmp}")
 
     print(f"[*] Restoring into temporary staging database: {temp_target}")
     try:
@@ -256,7 +345,19 @@ def restore_database(
         # Atomic replacement of target database
         print(f"[*] Staging verified. Atomically replacing target database: {target_db}")
         os.replace(temp_target, target_db)
+
+        # Clean up any leftover sidecars from the old target DB to ensure clean state
+        for suffix in ("-wal", "-shm", "-journal"):
+            Path(f"{target_db.as_posix()}{suffix}").unlink(missing_ok=True)
     except Exception:
+        # Rollback: restore any missing original sidecars so target remains untouched
+        for suffix, data in sidecar_snapshots.items():
+            sc_path = Path(f"{target_db.as_posix()}{suffix}")
+            if not sc_path.exists():
+                try:
+                    sc_path.write_bytes(data)
+                except OSError:
+                    pass
         if temp_target.exists():
             temp_target.unlink(missing_ok=True)
         raise
@@ -293,9 +394,17 @@ def main() -> None:
     restore_parser.add_argument("--backup-file", type=Path, required=True, help="Path to backup file")
     restore_parser.add_argument("--target", type=Path, default=DEFAULT_DB_PATH, help="Target SQLite database path")
     restore_parser.add_argument(
+        "--confirmed-offline-maintenance",
         "--skip-process-lock-check",
+        dest="confirmed_offline_maintenance",
         action="store_true",
-        help="Skip active process lock check only during verified controlled maintenance shutdown.",
+        help="Confirm offline maintenance when running in non-systemd or test environments.",
+    )
+    restore_parser.add_argument(
+        "--service-name",
+        type=str,
+        default="aps-backend",
+        help="Systemd service name to check on Linux (default: aps-backend).",
     )
 
     # Verify subcommand
@@ -310,7 +419,8 @@ def main() -> None:
         restore_database(
             backup_file=args.backup_file,
             target_db=args.target,
-            skip_process_lock_check=args.skip_process_lock_check,
+            confirmed_offline_maintenance=args.confirmed_offline_maintenance,
+            service_name=args.service_name,
         )
     elif args.command == "verify":
         is_valid, msg = verify_sqlite_integrity(args.path)

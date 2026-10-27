@@ -7,12 +7,21 @@
  * thresholds, and persisted evaluation records remain unmodified.
  */
 
+function toFiniteNumber(val: unknown): number {
+  const num = Number(val);
+  return Number.isFinite(num) ? num : 0;
+}
+
 export function downsampleCurve<T extends object>(
   data: T[],
   xKey: keyof T,
   yKey: keyof T,
   targetCount: number = 100,
 ): T[] {
+  if (!Array.isArray(data) || data.length === 0) {
+    return [];
+  }
+
   const length = data.length;
   if (length <= targetCount || targetCount < 3) {
     return data;
@@ -39,15 +48,15 @@ export function downsampleCurve<T extends object>(
 
     if (avgRangeLength > 0) {
       for (let j = avgRangeStart; j < avgRangeEnd; j++) {
-        avgX += Number(data[j][xKey]) || 0;
-        avgY += Number(data[j][yKey]) || 0;
+        avgX += toFiniteNumber(data[j][xKey]);
+        avgY += toFiniteNumber(data[j][yKey]);
       }
       avgX /= avgRangeLength;
       avgY /= avgRangeLength;
     } else {
-      const fallbackPoint = data[Math.min(avgRangeStart, length - 1)];
-      avgX = Number(fallbackPoint[xKey]) || 0;
-      avgY = Number(fallbackPoint[yKey]) || 0;
+      const fallbackPoint = data[Math.min(avgRangeStart, length - 1)] ?? data[0];
+      avgX = toFiniteNumber(fallbackPoint[xKey]);
+      avgY = toFiniteNumber(fallbackPoint[yKey]);
     }
 
     // Current bucket range (bucket B)
@@ -56,15 +65,15 @@ export function downsampleCurve<T extends object>(
 
     // Point A
     const pointA = data[aIndex];
-    const pointAX = Number(pointA[xKey]) || 0;
-    const pointAY = Number(pointA[yKey]) || 0;
+    const pointAX = toFiniteNumber(pointA[xKey]);
+    const pointAY = toFiniteNumber(pointA[yKey]);
 
     let maxArea = -1;
-    let maxAreaIndex = rangeStart;
+    let maxAreaIndex = Math.min(rangeStart, length - 1);
 
     for (let j = rangeStart; j < rangeEnd; j++) {
-      const currentX = Number(data[j][xKey]) || 0;
-      const currentY = Number(data[j][yKey]) || 0;
+      const currentX = toFiniteNumber(data[j][xKey]);
+      const currentY = toFiniteNumber(data[j][yKey]);
 
       // Triangle area: 0.5 * |x_a(y_b - y_c) + x_b(y_c - y_a) + x_c(y_a - y_b)|
       const area = Math.abs(

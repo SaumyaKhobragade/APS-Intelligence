@@ -18,15 +18,39 @@ interface PrecisionRecallChartProps {
 
 function PrecisionRecallChartComponent({ models }: PrecisionRecallChartProps) {
   const [curveType, setCurveType] = React.useState<"pr" | "roc">("pr");
-  // Default to showing top 2 models to prevent browser lockup from 30k+ SVG nodes
-  const [visibleModels, setVisibleModels] = React.useState<Set<string>>(() =>
-    new Set(models.slice(0, 2).map((model) => model.modelId)),
-  );
+
+  // Derive ranked models list sorted deterministically by validation PR-AUC descending
+  // Tie-breaker: ROC-AUC descending, then modelId ascending. Never mutates input array.
+  const rankedModels = React.useMemo(() => {
+    return [...models].sort((a, b) => {
+      const prDiff = (b.prAuc ?? 0) - (a.prAuc ?? 0);
+      if (Math.abs(prDiff) > 1e-6) return prDiff;
+      const rocA = a.rocAuc ?? -1;
+      const rocB = b.rocAuc ?? -1;
+      const rocDiff = rocB - rocA;
+      if (Math.abs(rocDiff) > 1e-6) return rocDiff;
+      return a.modelId.localeCompare(b.modelId);
+    });
+  }, [models]);
+
+  // Default to showing top 2 validation-performing models
+  const [visibleModels, setVisibleModels] = React.useState<Set<string>>(() => {
+    const sorted = [...models].sort((a, b) => {
+      const prDiff = (b.prAuc ?? 0) - (a.prAuc ?? 0);
+      if (Math.abs(prDiff) > 1e-6) return prDiff;
+      const rocA = a.rocAuc ?? -1;
+      const rocB = b.rocAuc ?? -1;
+      const rocDiff = rocB - rocA;
+      if (Math.abs(rocDiff) > 1e-6) return rocDiff;
+      return a.modelId.localeCompare(b.modelId);
+    });
+    return new Set(sorted.slice(0, 2).map((m) => m.modelId));
+  });
 
   // Downsample coordinates for visualization-only rendering (max 100 points per curve)
   // Preserves curve shape, elbows, endpoints while dropping SVG nodes from 33,000 to <300.
   const downsampledModels = React.useMemo(() => {
-    return models.map((model) => ({
+    return rankedModels.map((model) => ({
       modelId: model.modelId,
       modelName: model.modelName,
       prAuc: model.prAuc,
@@ -34,7 +58,7 @@ function PrecisionRecallChartComponent({ models }: PrecisionRecallChartProps) {
       prCurve: downsampleCurve(model.precisionRecallCurve, "recall", "precision", 100),
       rocCurve: model.rocCurve ? downsampleCurve(model.rocCurve, "falsePositiveRate", "truePositiveRate", 100) : [],
     }));
-  }, [models]);
+  }, [rankedModels]);
 
   function toggleModel(modelId: string) {
     setVisibleModels((current) => {
@@ -46,7 +70,7 @@ function PrecisionRecallChartComponent({ models }: PrecisionRecallChartProps) {
   }
 
   function setTopN(count: number) {
-    setVisibleModels(new Set(models.slice(0, count).map((m) => m.modelId)));
+    setVisibleModels(new Set(rankedModels.slice(0, count).map((m) => m.modelId)));
   }
 
   function clearAll() {
@@ -54,7 +78,7 @@ function PrecisionRecallChartComponent({ models }: PrecisionRecallChartProps) {
   }
 
   function selectAll() {
-    setVisibleModels(new Set(models.map((m) => m.modelId)));
+    setVisibleModels(new Set(rankedModels.map((m) => m.modelId)));
   }
 
   const prAvailable = downsampledModels.some((model) => model.prCurve.length > 0);
@@ -108,7 +132,7 @@ function PrecisionRecallChartComponent({ models }: PrecisionRecallChartProps) {
                     <XAxis type="number" dataKey="recall" domain={[0, 1]} ticks={[0, 0.25, 0.5, 0.75, 1]} tickLine={false} axisLine={false} tick={{ fill: "#C0C0C0", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }} tickFormatter={(value: number) => value.toFixed(2)} label={{ value: "Recall", position: "insideBottomRight", fill: "#787873", fontSize: 10, offset: -2 }} />
                     <YAxis type="number" dataKey="precision" domain={[0, 1]} ticks={[0, 0.25, 0.5, 0.75, 1]} tickLine={false} axisLine={false} tick={{ fill: "#C0C0C0", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }} tickFormatter={(value: number) => value.toFixed(2)} label={{ value: "Precision", angle: -90, position: "insideLeft", fill: "#787873", fontSize: 10, offset: 8 }} />
                     <Tooltip cursor={{ stroke: "#C0C0C0", strokeDasharray: "3 3" }} contentStyle={{ border: "1px solid #787873", borderRadius: 0, background: "#2A2A2A", color: "#ffffff", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 11 }} formatter={(value) => formatPercent(Number(value ?? 0))} labelFormatter={(value) => `Recall ${formatPercent(Number(value))}`} />
-                    {downsampledModels.map((model, index) => visibleModels.has(model.modelId) ? (
+                    {downsampledModels.map((model, index) => visibleModels.has(model.modelId) && model.prCurve.length > 0 ? (
                       <Line key={model.modelId} data={model.prCurve} type="monotone" dataKey="precision" name={model.modelName} stroke={modelColors[index % modelColors.length]} strokeWidth={index === 0 ? 3 : 1.8} dot={false} activeDot={{ r: 4, stroke: "#ffffff", strokeWidth: 1.5 }} />
                     ) : null)}
                   </LineChart>

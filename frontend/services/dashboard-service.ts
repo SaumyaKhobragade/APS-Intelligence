@@ -1,62 +1,118 @@
-import { apiFetch } from "@/services/api-client";
-import { fetchDatasetExplorer } from "@/services/dataset-service";
-import type { BackendDashboardResponse } from "@/services/backend-contracts";
-import type { DashboardSnapshot, DatasetMetadata, ExperimentRecord, ModelMetrics } from "@/types";
+import { fetchDatasetExplorer, fetchDatasets } from "@/services/dataset-service";
+import {
+  fetchHistoricalOverview,
+  fetchHistoricalValidation,
+  fetchHistoricalValidationComparison,
+  mapHistoricalSummaryToModel,
+  mapHistoricalValidationToModel,
+} from "@/services/historical-evidence-service";
+import type { BackendDatasetSummary } from "@/services/backend-contracts";
+import type { DashboardSnapshot, DatasetMetadata, DatasetDistribution, ExperimentRecord, ModelMetrics } from "@/types";
+
+const CANDIDATE_ID = "phase9-final-validation-candidate";
 
 export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const dashboard = await apiFetch<BackendDashboardResponse>("/analytics/dashboard");
-  const primaryDataset = dashboard.datasets.find((dataset) => dataset.dataset_type === "training") ?? dashboard.datasets[0];
-  let explorer = null;
-  if (primaryDataset) {
-    try {
-      explorer = await fetchDatasetExplorer(primaryDataset.dataset_id, 1, 50);
-    } catch {
-      explorer = null;
-    }
-  }
-  const dataset: DatasetMetadata | null = primaryDataset ? {
-    id: primaryDataset.dataset_id,
-    name: primaryDataset.dataset_name,
-    source: primaryDataset.source_file_name,
-    featureCount: primaryDataset.feature_count,
-    rowCount: primaryDataset.record_count,
-    positiveClassLabel: explorer?.dataset.positiveClassLabel ?? "unavailable",
-    missingValueCount: explorer?.dataset.missingValueCount ?? 0,
-    updatedAt: primaryDataset.imported_at,
-    datasetType: primaryDataset.dataset_type === "testing" ? "testing" : "training",
-    targetColumn: primaryDataset.target_column ?? "class",
-    fileSizeBytes: primaryDataset.file_size_bytes,
-    status: primaryDataset.status === "error" ? "error" : "ready",
-    uploadedAt: primaryDataset.imported_at,
-  } : null;
-  const models: ModelMetrics[] = dashboard.latest_validation_metrics.filter((metric) => metric.pr_auc !== null && metric.pr_auc !== undefined).map((metric) => ({
-    modelId: `${metric.reference_type}:${metric.reference_id}`,
-    modelName: `${metric.model_name} / ${metric.model_version}`,
-    prAuc: metric.pr_auc ?? 0,
-    precision: metric.precision ?? 0,
-    recall: metric.recall ?? 0,
-    f1Score: metric.f1_score ?? 0,
-    threshold: 0.5,
-    evaluatedAt: metric.generated_at,
-  }));
-  const recentExperiments: ExperimentRecord[] = dashboard.recent_experiments.map((experiment) => ({
-    id: experiment.experiment_id,
-    name: `${experiment.model_name} / ${experiment.model_version}`,
+  const [datasets, overview, candidateEvidence, comparison] = await Promise.all([
+    fetchDatasets("training"),
+    fetchHistoricalOverview(),
+    fetchHistoricalValidation(CANDIDATE_ID),
+    fetchHistoricalValidationComparison(100),
+  ]);
+  const primaryDataset = datasets.items[0];
+  const explorer = primaryDataset ? await fetchDatasetExplorer(primaryDataset.dataset_id) : null;
+  const dataset = primaryDataset ? mapDataset(primaryDataset, explorer?.dataset.missingValueCount) : null;
+  const models: ModelMetrics[] = comparison.items.flatMap((item) => {
+    const model = mapHistoricalSummaryToModel(item);
+    if (!model) return [];
+    return [{
+      modelId: model.modelId,
+      modelName: model.modelName,
+      prAuc: model.prAuc,
+      precision: model.precision,
+      recall: model.recall,
+      f1Score: model.f1Score,
+      threshold: model.threshold,
+      evaluatedAt: model.evaluatedAt,
+      rocAuc: model.rocAuc,
+      specificity: model.specificity,
+      balancedAccuracy: model.balancedAccuracy,
+      evaluationScope: model.evaluationScope,
+      candidateLabel: model.candidateLabel,
+    }];
+  });
+  const candidateValidation = mapHistoricalValidationToModel(candidateEvidence);
+  const split = candidateEvidence.dataset_and_split;
+  const distribution = distributionFromEvidence(split) ?? explorer?.classDistribution ?? null;
+  const recentExperiments: ExperimentRecord[] = overview.experiments.slice(0, 5).map((experiment) => ({
+    id: experiment.reference_id,
+    name: `${experiment.model_name}${experiment.imbalance_strategy ? ` / ${experiment.imbalance_strategy}` : ""}`,
     modelId: experiment.model_name,
     datasetId: experiment.dataset_id,
     status: experiment.status === "running" || experiment.status === "queued" || experiment.status === "failed" ? experiment.status : "completed",
-    prAuc: experiment.pr_auc ?? undefined,
-    createdAt: experiment.created_at,
+    prAuc: experiment.validation_metrics?.pr_auc ?? undefined,
+    createdAt: experiment.created_at ?? "",
     completedAt: experiment.completed_at ?? undefined,
   }));
   return {
     dataset,
-    distribution: explorer?.classDistribution ?? null,
+    distribution,
     models,
-    businessImpact: null,
+    businessImpact: candidateValidation?.businessImpact ?? null,
     recentExperiments,
-    lastUpdated: dashboard.generated_at,
-    availability: dashboard.availability,
-    sourceLabel: "Persisted backend analytics",
+    quality: explorer?.quality ?? null,
+    lastUpdated: new Date().toISOString(),
+    availability: [
+      ...overview.availability,
+      ...(explorer ? [] : [{ name: "training_profile", status: "unavailable" as const, message: "No persisted training profile is available; raw data was not reprofiled." }]),
+      ...candidateEvidence.availability,
+    ],
+    sourceLabel: "Persisted Phase 3/4/9 evidence",
+    candidateStatus: overview.candidate_lifecycle_status ?? "unavailable",
+    candidateLabel: overview.candidate_label ?? undefined,
+    candidateThreshold: candidateValidation?.threshold,
+    candidateValidation: candidateValidation ?? undefined,
+  };
+}
+
+function mapDataset(dataset: BackendDatasetSummary, missingValueCount?: number): DatasetMetadata {
+  return {
+    id: dataset.dataset_id,
+    name: dataset.dataset_name,
+    source: dataset.source_file_name,
+    featureCount: dataset.feature_count,
+    rowCount: dataset.record_count,
+    positiveClassLabel: "pos",
+    missingValueCount,
+    updatedAt: dataset.imported_at,
+    datasetType: dataset.dataset_type === "testing" ? "testing" : "training",
+    targetColumn: dataset.target_column ?? "class",
+    fingerprint: dataset.fingerprint,
+    fileSizeBytes: dataset.file_size_bytes,
+    status: dataset.status === "error" ? "error" : "ready",
+    uploadedAt: dataset.imported_at,
+  };
+}
+
+function distributionFromEvidence(payload: Record<string, unknown> | null | undefined): DatasetDistribution | null {
+  if (!payload) return null;
+  const training = counts(payload.training_class_counts);
+  const validation = counts(payload.validation_class_counts);
+  const normalRecords = training.neg + validation.neg;
+  const failureRecords = training.pos + validation.pos;
+  const total = normalRecords + failureRecords;
+  if (!total) return null;
+  return {
+    normalRecords,
+    failureRecords,
+    imbalanceRatio: `${(normalRecords / Math.max(failureRecords, 1)).toFixed(2)}:1`,
+  };
+}
+
+function counts(value: unknown): { neg: number; pos: number } {
+  if (!value || typeof value !== "object") return { neg: 0, pos: 0 };
+  const record = value as Record<string, unknown>;
+  return {
+    neg: typeof record.neg === "number" ? record.neg : 0,
+    pos: typeof record.pos === "number" ? record.pos : 0,
   };
 }

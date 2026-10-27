@@ -25,6 +25,8 @@ from app.schemas.historical_evidence import (
     HistoricalCrossValidation,
     HistoricalEvidenceOverview,
     HistoricalMetric,
+    OfficialTestConfidenceInterval,
+    OfficialTestEvidenceResponse,
     HistoricalRunDetail,
     HistoricalRunListResponse,
     HistoricalRunSummary,
@@ -38,6 +40,7 @@ from app.services.reproducibility import sha256_file
 
 EVIDENCE_VERSION = "phase11.3.v1"
 NORMALIZATION_VERSION = "phase9-validation-nested-v1"
+OFFICIAL_TEST_EVIDENCE_VERSION = "phase10-official-test.v1"
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -135,6 +138,7 @@ class HistoricalEvidenceService:
         self.data_root = settings.persistent_storage_dir.resolve()
         self.model_root = settings.model_artifact_dir.resolve()
         self.phase9_root = self.model_root.parent / "phase9" / "phase9-final-validation"
+        self.phase10_root = self.model_root.parent / "phase10" / "official-test-evaluation"
 
     def _database_path(self, name: str) -> Path:
         return (self.data_root / name).resolve()
@@ -244,13 +248,14 @@ class HistoricalEvidenceService:
         except (OSError, ValueError) as exc:
             raise ArtifactCompatibilityError("A historical artifact path is outside the trusted model artifact root.") from exc
 
-    def _trusted_evidence_path(self, path: Path) -> Path:
+    def _trusted_evidence_path(self, path: Path, root: Path | None = None) -> Path:
+        trusted_root = (root or self.phase9_root).resolve()
         try:
             resolved = path.resolve()
-            resolved.relative_to(self.phase9_root)
+            resolved.relative_to(trusted_root)
             return resolved
         except (OSError, ValueError) as exc:
-            raise ArtifactCompatibilityError("A historical evidence path is outside the trusted Phase 9 evidence root.") from exc
+            raise ArtifactCompatibilityError("A historical evidence path is outside its trusted evidence root.") from exc
 
     def _availability(self, name: str, artifacts: list[HistoricalArtifact]) -> HistoricalAvailability:
         if not artifacts:
@@ -363,6 +368,7 @@ class HistoricalEvidenceService:
             artifact_integrity_status=row.get("artifact_integrity_status") or "not_recorded",
             artifact_available=all(item.exists for item in artifacts),
             source_database="data/phase3_smoke.db",
+            training_duration_seconds=_number(row.get("training_duration_seconds")),
         )
 
     def _phase4_summary(self, row: dict[str, Any]) -> HistoricalRunSummary:
@@ -403,6 +409,9 @@ class HistoricalEvidenceService:
             artifact_integrity_status=row.get("artifact_integrity_status") or "not_recorded",
             artifact_available=all(item.exists for item in artifacts) if row["status"] == "completed" else False,
             source_database="data/phase4_smoke.db",
+            curves=_dict(row.get("curves_json")) or None,
+            training_duration_seconds=_number(row.get("training_duration_seconds")),
+            inference_duration_seconds=_number(row.get("inference_duration_seconds")),
         )
 
     def _phase9_payloads(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -496,6 +505,9 @@ class HistoricalEvidenceService:
             artifact_available=all(item.exists for item in artifacts),
             source_database="data/phase9_validation.db",
             candidate_label="Final validation candidate — not production approved",
+            curves=_dict(row.get("curves_json")) or None,
+            training_duration_seconds=_number(row.get("training_duration_seconds")),
+            inference_duration_seconds=_number(row.get("inference_duration_seconds")),
         )
 
     def _phase9_summary_if_available(self) -> HistoricalRunSummary | None:
@@ -608,7 +620,6 @@ class HistoricalEvidenceService:
             configuration=_dict(row.get("configuration_json")),
             hyperparameters=_dict(row.get("best_parameters_json")),
             search_results=_list(row.get("search_results_json")),
-            curves=_dict(row.get("curves_json")),
             feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
             metrics=[summary.validation_metrics] if summary.validation_metrics else [],
             artifacts=artifacts,
@@ -635,7 +646,6 @@ class HistoricalEvidenceService:
                     configuration=_dict(row.get("configuration_json")),
                     hyperparameters=_dict(row.get("best_parameters_json")),
                     search_results=_list(row.get("search_results_json")),
-                    curves=_dict(row.get("curves_json")),
                     feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
                     metrics=[_metric(frozen, scope="validation", label="External validation / frozen threshold 0.115", source_reference="artifacts/phase9/phase9-final-validation/validation_metrics.json")],
                     artifacts=artifacts,
@@ -683,6 +693,8 @@ class HistoricalEvidenceService:
                 hyperparameters = _json(item.get("best_hyperparameters"), {})
                 cv_mean = _number(item.get("cv_pr_auc_mean"))
                 cv_std = _number(item.get("cv_pr_auc_std"))
+                curve_path = self.phase9_root / "curves" / f"{item.get('model_family')}__{item.get('imbalance_strategy')}.json"
+                curves = self._read_json_file(curve_path, "Phase 9 validation curve") if curve_path.is_file() else None
                 rows.append(
                     HistoricalRunSummary(
                         reference_type="experiment",
@@ -710,6 +722,9 @@ class HistoricalEvidenceService:
                         artifact_available=True,
                         source_database="artifacts/phase9/phase9-final-validation/model_comparison.csv",
                         candidate_label="Final validation candidate — not production approved" if item.get("selected") == "True" else None,
+                        curves=curves or None,
+                        training_duration_seconds=_number(item.get("training_duration_seconds")),
+                        inference_duration_seconds=_number(item.get("inference_duration_seconds")),
                     )
                 )
         return rows
@@ -717,10 +732,17 @@ class HistoricalEvidenceService:
     def validation_comparison(self, page: int, page_size: int) -> HistoricalValidationComparisonResponse:
         phase9_rows = self._phase9_comparison_rows()
         candidate = self._phase9_summary_if_available()
-        # The CSV already contains the candidate's default validation row. Keep
-        # the frozen-threshold result in the candidate detail endpoint so scopes
-        # cannot be accidentally merged in a ranking table.
-        items = [self._phase4_summary(row) for row in self._phase4_rows()] + phase9_rows
+        # The comparison CSV contains a default-threshold row for the selected
+        # candidate. Replace that row with the persisted frozen candidate
+        # summary so the live comparison never displays threshold 0.5 for the
+        # final candidate or ranks a different operating point as final.
+        phase9_comparison = [
+            item for item in phase9_rows
+            if item.reference_id != "phase9-final-validation-candidate"
+        ]
+        if candidate:
+            phase9_comparison.append(candidate)
+        items = [self._phase4_summary(row) for row in self._phase4_rows()] + phase9_comparison
         items.sort(key=lambda item: (item.primary_metric is not None, item.primary_metric or -1), reverse=True)
         availability = [
             HistoricalAvailability(
@@ -741,12 +763,19 @@ class HistoricalEvidenceService:
 
     def validation_detail(self, reference_id: str) -> HistoricalValidationResponse:
         detail = self.experiment_detail(reference_id)
+        dataset_and_split = None
+        if reference_id == "phase9-final-validation-candidate":
+            payload = self._read_json_file(self.phase9_root / "dataset_and_split.json", "Phase 9 dataset and split")
+            dataset_and_split = payload or None
         return HistoricalValidationResponse(
             evidence_version=EVIDENCE_VERSION,
             normalization_version=NORMALIZATION_VERSION,
             reference=detail,
             metrics=detail.metrics,
             cross_validation=detail.cross_validation,
+            dataset_and_split=dataset_and_split,
+            curves=detail.curves,
+            feature_importance=detail.feature_importance,
             artifacts=detail.artifacts,
             availability=detail.availability,
             provenance=detail.provenance,
@@ -849,3 +878,99 @@ class HistoricalEvidenceService:
         if reference_id != "phase9-final-validation-candidate":
             raise ResourceNotFoundError(f"Historical calibration evidence '{reference_id}' was not found.")
         return self._phase9_threshold_data()[1]
+
+    def official_test(self) -> OfficialTestEvidenceResponse:
+        """Return persisted Phase 10 evidence without opening the raw test CSV."""
+
+        metrics_payload = self._read_json_file(self.phase10_root / "official_test_metrics.json", "official test metrics")
+        calibration_payload = self._read_json_file(self.phase10_root / "official_test_calibration.json", "official test calibration")
+        reliability_payload = self._read_json_file(self.phase10_root / "official_test_reliability.json", "official test reliability")
+        integrity_payload = self._read_json_file(self.phase10_root / "official_test_integrity.json", "official test integrity")
+        pre_audit_payload = self._read_json_file(self.phase10_root / "pre_evaluation_audit.json", "official test pre-evaluation audit")
+        if not metrics_payload:
+            raise ArtifactUnavailableError("Persisted official-test evidence is unavailable.")
+
+        primary = metrics_payload.get("primary_policy", {})
+        if not isinstance(primary, dict):
+            raise ArtifactCompatibilityError("Persisted official-test primary policy has an incompatible schema.")
+        confusion = _metric(
+            primary,
+            scope="official_test",
+            label="Official test / frozen threshold 0.115",
+            source_reference="artifacts/phase10/official-test-evaluation/official_test_metrics.json",
+        )
+        intervals_payload = metrics_payload.get("confidence_intervals", {}).get("intervals", {})
+        intervals = {
+            name: OfficialTestConfidenceInterval(
+                lower=float(value["lower"]),
+                upper=float(value["upper"]),
+            )
+            for name, value in intervals_payload.items()
+            if isinstance(value, dict) and _number(value.get("lower")) is not None and _number(value.get("upper")) is not None
+        }
+        final_candidate, _, _, _ = self._phase9_payloads()
+        model_class = str(pre_audit_payload.get("model", {}).get("class", "CatBoostClassifier"))
+        model_name = "catboost" if model_class.lower().startswith("catboost") else model_class.removesuffix("Classifier").lower()
+        stored_hashes = integrity_payload.get("output_artifact_sha256", {})
+        if not isinstance(stored_hashes, dict):
+            stored_hashes = {}
+        artifact_names = (
+            "official_test_calibration.json",
+            "official_test_comparison.csv",
+            "official_test_confusion_matrix.json",
+            "official_test_integrity.json",
+            "official_test_metrics.json",
+            "official_test_predictions.csv",
+            "official_test_pr_curve.json",
+            "official_test_reliability.json",
+            "official_test_report.md",
+            "official_test_roc_curve.json",
+            "pre_evaluation_audit.json",
+        )
+        artifacts = [
+            self._artifact(
+                name,
+                self._trusted_evidence_path(self.phase10_root / name, self.phase10_root),
+                stored_hashes.get(name) if isinstance(stored_hashes.get(name), str) else None,
+            )
+            for name in artifact_names
+        ]
+        confidence_config = metrics_payload.get("confidence_intervals", {})
+        integrity_flags = {
+            "official_test_evaluated": bool(metrics_payload.get("official_test_evaluated") and integrity_payload.get("official_test_evaluated")),
+            "retraining_performed": bool(metrics_payload.get("retraining_performed") or integrity_payload.get("model_retrained")),
+            "calibration_refit": bool(metrics_payload.get("calibration_refit") or integrity_payload.get("calibrator_refit")),
+            "threshold_changed": bool(metrics_payload.get("threshold_changed") or integrity_payload.get("threshold_changed")),
+            "promotion_performed": bool(integrity_payload.get("promotion_performed")),
+            "label_reconciliation_passed": bool(integrity_payload.get("label_reconciliation_passed")),
+        }
+        return OfficialTestEvidenceResponse(
+            evidence_version=OFFICIAL_TEST_EVIDENCE_VERSION,
+            evaluation_id=str(metrics_payload.get("evaluation_id", "phase10-official-test-evaluation")),
+            candidate_id=str(metrics_payload.get("candidate_id", "phase9-final-validation-candidate")),
+            candidate_label="Final validation candidate — not production approved",
+            model_name=model_name,
+            imbalance_strategy=str(final_candidate.get("imbalance_strategy", "unavailable")),
+            calibration_method=str(metrics_payload.get("calibration_method") or calibration_payload.get("calibration_method", "isotonic")),
+            frozen_threshold=float(metrics_payload.get("frozen_threshold", primary.get("threshold", 0.115))),
+            metrics=confusion,
+            confidence_intervals=intervals,
+            confidence_interval_method=str(confidence_config.get("method")) if confidence_config.get("method") else None,
+            confidence_interval_replicates=_int(confidence_config.get("replicates")),
+            calibration_metrics={
+                "brier_score": _number(calibration_payload.get("brier_score")),
+                "log_loss": _number(calibration_payload.get("log_loss")),
+                "expected_calibration_error": _number(calibration_payload.get("expected_calibration_error", reliability_payload.get("expected_calibration_error"))),
+            },
+            reliability_curve=calibration_payload.get("reliability_curve", reliability_payload.get("reliability_curve", [])) if isinstance(calibration_payload.get("reliability_curve", reliability_payload.get("reliability_curve", [])), list) else [],
+            precision_recall_curve=self._read_json_file(self.phase10_root / "official_test_pr_curve.json", "official test precision-recall curve"),
+            roc_curve=self._read_json_file(self.phase10_root / "official_test_roc_curve.json", "official test ROC curve"),
+            integrity_flags=integrity_flags,
+            artifacts=artifacts,
+            availability=[self._availability("official_test_evidence", artifacts)],
+            provenance=[
+                "Persisted Phase 10 official-test evaluation evidence; the raw official test CSV is not read by this endpoint.",
+                "The candidate, CatBoost class-weighting strategy, isotonic calibration and threshold 0.115 were frozen before evaluation.",
+                "These are historical official-test results, not production monitoring metrics.",
+            ],
+        )

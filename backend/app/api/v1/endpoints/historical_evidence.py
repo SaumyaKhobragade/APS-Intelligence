@@ -8,6 +8,7 @@ from app.schemas.historical_evidence import (
     HistoricalEvidenceOverview,
     HistoricalRunDetail,
     HistoricalRunListResponse,
+    OfficialTestEvidenceResponse,
     HistoricalThresholdResponse,
     HistoricalValidationComparisonResponse,
     HistoricalValidationResponse,
@@ -76,3 +77,8 @@ def historical_thresholds(reference_id: str, service: HistoricalEvidenceService 
 @router.get("/calibration/{reference_id}", response_model=HistoricalCalibrationResponse, summary="Get persisted historical calibration evidence")
 def historical_calibration(reference_id: str, service: HistoricalEvidenceService = Depends(get_service)) -> HistoricalCalibrationResponse:
     return service.calibration(reference_id)
+
+
+@router.get("/official-test", response_model=OfficialTestEvidenceResponse, summary="Get persisted Phase 10 official-test evidence")
+def official_test_evidence(service: HistoricalEvidenceService = Depends(get_service)) -> OfficialTestEvidenceResponse:
+    return service.official_test()

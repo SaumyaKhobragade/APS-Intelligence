@@ -135,7 +135,7 @@ def historical_environment(tmp_path: Path) -> tuple[Settings, HistoricalEvidence
         candidate_dir.joinpath(name).write_bytes(b"persisted fixture artifact")
 
     phase9_root = settings.model_artifact_dir.parent / "phase9" / "phase9-final-validation"
-    _write_json(phase9_root / "final_candidate.json", {"calibration": {"selected_method": "isotonic"}})
+    _write_json(phase9_root / "final_candidate.json", {"model_family": "catboost", "imbalance_strategy": "class_weight", "calibration": {"selected_method": "isotonic"}})
     _write_json(phase9_root / "validation_metrics.json", {"selected_candidate": {"calibrated_internal_min_cost_threshold": _metric_payload()}})
     _write_json(
         phase9_root / "selected" / "threshold_policy_comparisons.json",
@@ -155,6 +155,32 @@ def historical_environment(tmp_path: Path) -> tuple[Settings, HistoricalEvidence
         },
     )
     phase9_root.joinpath("selected", "calibrator_isotonic.joblib").write_bytes(b"calibrator")
+
+    phase10_root = settings.model_artifact_dir.parent / "phase10" / "official-test-evaluation"
+    official_metric = {**_metric_payload(), "pr_auc": 0.8638064645500229, "roc_auc": 0.993536, "precision": 0.613718, "recall": 0.906667, "f1_score": 0.731970, "true_negative": 15411, "false_positive": 214, "false_negative": 35, "true_positive": 340, "estimated_business_cost": 564.0}
+    _write_json(
+        phase10_root / "official_test_metrics.json",
+        {
+            "evaluation_id": "phase10-official-test-evaluation",
+            "candidate_id": "phase9-final-validation-candidate",
+            "frozen_threshold": 0.115,
+            "primary_policy": official_metric,
+            "confidence_intervals": {"method": "stratified percentile bootstrap", "replicates": 1000, "intervals": {"pr_auc": {"lower": 0.836307, "upper": 0.890892}}},
+            "official_test_evaluated": True,
+            "retraining_performed": False,
+            "calibration_refit": False,
+            "threshold_changed": False,
+        },
+    )
+    _write_json(phase10_root / "official_test_calibration.json", {"calibration_method": "isotonic", "brier_score": 0.006978, "log_loss": 0.024511, "expected_calibration_error": 0.001427, "reliability_curve": []})
+    _write_json(phase10_root / "official_test_reliability.json", {"expected_calibration_error": 0.001427, "reliability_curve": []})
+    _write_json(phase10_root / "official_test_integrity.json", {"official_test_evaluated": True, "model_retrained": False, "calibrator_refit": False, "threshold_changed": False, "promotion_performed": False, "label_reconciliation_passed": True, "output_artifact_sha256": {}})
+    _write_json(phase10_root / "pre_evaluation_audit.json", {"model": {"class": "CatBoostClassifier"}})
+    _write_json(phase10_root / "official_test_pr_curve.json", {"precision": [0.6], "recall": [0.9], "thresholds": [0.115]})
+    _write_json(phase10_root / "official_test_roc_curve.json", {"false_positive_rate": [0.01], "true_positive_rate": [0.9], "thresholds": [0.115]})
+    for name in ("official_test_comparison.csv", "official_test_confusion_matrix.json", "official_test_predictions.csv", "official_test_report.md"):
+        phase10_root.joinpath(name).parent.mkdir(parents=True, exist_ok=True)
+        phase10_root.joinpath(name).write_text("fixture", encoding="utf-8")
 
     return settings, HistoricalEvidenceService(settings)
 
@@ -189,6 +215,19 @@ def test_phase9_threshold_and_calibration_are_persisted_and_read_only(
     assert threshold.selection_objective == "minimum_cost"
     assert calibration.selected_method == "isotonic"
     assert calibration.evaluation_scope.startswith("External validation")
+
+
+def test_validation_comparison_uses_frozen_candidate_operating_point(
+    historical_environment: tuple[Settings, HistoricalEvidenceService],
+) -> None:
+    _, service = historical_environment
+
+    response = service.validation_comparison(page=1, page_size=100)
+    candidate = next(item for item in response.items if item.reference_id == "phase9-final-validation-candidate")
+
+    assert candidate.threshold == pytest.approx(0.115)
+    assert candidate.validation_metrics is not None
+    assert candidate.validation_metrics.pr_auc == pytest.approx(0.8011077174714956)
 
 
 def test_failed_experiment_is_retained_with_unavailable_artifacts(tmp_path: Path) -> None:
@@ -259,3 +298,22 @@ def test_historical_api_does_not_load_models_or_enable_inference(
         response = client.get("/api/v1/historical-evidence/validation/phase9-final-validation-candidate")
         assert response.status_code == 200, response.text
         assert response.json()["reference"]["lifecycle_status"] == "evaluated"
+
+
+def test_official_test_evidence_is_separate_and_persisted(historical_environment: tuple[Settings, HistoricalEvidenceService]) -> None:
+    _, service = historical_environment
+
+    evidence = service.official_test()
+
+    assert evidence.evaluation_scope == "official_test"
+    assert evidence.model_name == "catboost"
+    assert evidence.imbalance_strategy == "class_weight"
+    assert evidence.calibration_method == "isotonic"
+    assert evidence.frozen_threshold == pytest.approx(0.115)
+    assert evidence.metrics.pr_auc == pytest.approx(0.8638064645500229)
+    assert evidence.metrics.confusion_matrix is not None
+    assert evidence.metrics.confusion_matrix.true_positive == 340
+    assert evidence.metrics.scope == "official_test"
+    assert "pr_auc" in evidence.confidence_intervals
+    assert evidence.integrity_flags["promotion_performed"] is False
+    assert evidence.provenance and "raw official test CSV is not read" in evidence.provenance[0]

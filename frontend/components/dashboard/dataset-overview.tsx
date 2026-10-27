@@ -22,6 +22,7 @@ interface DatasetOverviewProps {
 function DatasetOverview({ snapshot }: DatasetOverviewProps) {
   const dataset = snapshot.dataset!;
   const distribution = snapshot.distribution!;
+  const failurePercentage = (distribution.failureRecords / Math.max(distribution.normalRecords + distribution.failureRecords, 1)) * 100;
   const distributionData = [
     { label: "Normal", records: distribution.normalRecords, color: "#2A2A2A" },
     { label: "Failure", records: distribution.failureRecords, color: "#E10600" },
@@ -49,15 +50,15 @@ function DatasetOverview({ snapshot }: DatasetOverviewProps) {
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Features</p>
                <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-ink">{dataset.featureCount}</p>
             </div>
-            <div className="col-span-2 py-4 sm:col-span-1 sm:pl-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Imbalance</p>
-               <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-signal">{distribution.imbalanceRatio}</p>
+             <div className="col-span-2 py-4 sm:col-span-1 sm:pl-4">
+               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Positive class</p>
+                <p className="mt-2 font-mono text-2xl tracking-[-0.05em] text-signal">{failurePercentage.toFixed(2)}%</p>
             </div>
           </div>
 
           <div className="mt-8 flex items-start gap-3 border-l-2 border-signal pl-4">
             <Database aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-signal" strokeWidth={1.5} />
-             <p className="text-sm leading-6 text-ink-soft"><span className="font-medium text-ink">{formatNumber(dataset.missingValueCount)}</span> missing readings are recorded in the persisted dataset profile.</p>
+              <p className="text-sm leading-6 text-ink-soft">{dataset.missingValueCount === undefined ? <span className="italic text-muted">Missing-value count unavailable because no persisted training profile is registered.</span> : <><span className="font-medium text-ink">{formatNumber(dataset.missingValueCount)}</span> missing readings are recorded in the persisted dataset profile.</>}</p>
           </div>
         </div>
 

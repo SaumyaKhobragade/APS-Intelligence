@@ -10,6 +10,7 @@ EvidenceScope = Literal[
     "historical_training",
     "cross_validation",
     "validation",
+    "official_test",
     "internal_selection",
 ]
 EvidenceStatus = Literal["available", "unavailable", "blocked", "failed"]
@@ -98,13 +99,15 @@ class HistoricalRunSummary(BaseModel):
     artifact_available: bool
     source_database: str
     candidate_label: str | None = None
+    curves: dict[str, Any] | list[Any] | None = None
+    training_duration_seconds: float | None = None
+    inference_duration_seconds: float | None = None
 
 
 class HistoricalRunDetail(HistoricalRunSummary):
     configuration: dict[str, Any] = Field(default_factory=dict)
     hyperparameters: dict[str, Any] = Field(default_factory=dict)
     search_results: list[dict[str, Any]] = Field(default_factory=list)
-    curves: dict[str, Any] | list[Any] = Field(default_factory=dict)
     feature_importance: list[dict[str, Any]] = Field(default_factory=list)
     metrics: list[HistoricalMetric] = Field(default_factory=list)
     artifacts: list[HistoricalArtifact] = Field(default_factory=list)
@@ -149,6 +152,9 @@ class HistoricalValidationResponse(BaseModel):
     reference: HistoricalRunSummary
     metrics: list[HistoricalMetric]
     cross_validation: HistoricalCrossValidation | None = None
+    dataset_and_split: dict[str, Any] | None = None
+    curves: dict[str, Any] | list[Any] | None = None
+    feature_importance: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[HistoricalArtifact] = Field(default_factory=list)
     availability: list[HistoricalAvailability] = Field(default_factory=list)
     provenance: list[str] = Field(default_factory=list)
@@ -194,6 +200,37 @@ class HistoricalCalibrationResponse(BaseModel):
     evaluation_scope: str
     metrics: dict[str, float | None] = Field(default_factory=dict)
     reliability_curve: list[dict[str, Any]] = Field(default_factory=list)
+    artifacts: list[HistoricalArtifact] = Field(default_factory=list)
+    availability: list[HistoricalAvailability] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+
+
+class OfficialTestConfidenceInterval(BaseModel):
+    lower: float
+    upper: float
+
+
+class OfficialTestEvidenceResponse(BaseModel):
+    """Persisted Phase 10 official-test evidence kept out of validation rankings."""
+
+    evidence_version: str
+    evaluation_id: str
+    candidate_id: str
+    candidate_label: str
+    evaluation_scope: Literal["official_test"] = "official_test"
+    model_name: str
+    imbalance_strategy: str
+    calibration_method: str
+    frozen_threshold: float
+    metrics: HistoricalMetric
+    confidence_intervals: dict[str, OfficialTestConfidenceInterval] = Field(default_factory=dict)
+    confidence_interval_method: str | None = None
+    confidence_interval_replicates: int | None = None
+    calibration_metrics: dict[str, float | None] = Field(default_factory=dict)
+    reliability_curve: list[dict[str, Any]] = Field(default_factory=list)
+    precision_recall_curve: dict[str, list[float]] = Field(default_factory=dict)
+    roc_curve: dict[str, list[float]] = Field(default_factory=dict)
+    integrity_flags: dict[str, bool] = Field(default_factory=dict)
     artifacts: list[HistoricalArtifact] = Field(default_factory=list)
     availability: list[HistoricalAvailability] = Field(default_factory=list)
     provenance: list[str] = Field(default_factory=list)

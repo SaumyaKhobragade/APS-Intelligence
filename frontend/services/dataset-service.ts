@@ -1,4 +1,5 @@
 import { apiFetch } from "@/services/api-client";
+import { fetchHistoricalValidation } from "@/services/historical-evidence-service";
 import type {
   BackendDatasetAnalyticsResponse,
   BackendDatasetListResponse,
@@ -51,7 +52,7 @@ export function uploadDataset(file: File): Promise<DatasetUploadResponse> {
   }));
 }
 
-function mapDatasetSummary(dataset: BackendDatasetSummary) {
+export function mapDatasetSummary(dataset: BackendDatasetSummary) {
   return {
     id: dataset.dataset_id,
     name: dataset.dataset_name,
@@ -59,14 +60,47 @@ function mapDatasetSummary(dataset: BackendDatasetSummary) {
     featureCount: dataset.feature_count,
     rowCount: dataset.record_count,
     positiveClassLabel: "pos",
-    missingValueCount: 0,
     updatedAt: dataset.imported_at,
     datasetType: mapDatasetType(dataset.dataset_type),
     targetColumn: dataset.target_column ?? "class",
+    fingerprint: dataset.fingerprint,
     fileSizeBytes: dataset.file_size_bytes,
     status: dataset.status === "error" ? "error" : "ready",
     uploadedAt: dataset.imported_at,
   } as const;
+}
+
+export interface DatasetEvidenceState {
+  metadata: ReturnType<typeof mapDatasetSummary> | null;
+  snapshot: DatasetExplorerSnapshot | null;
+  splitEvidence: Record<string, unknown> | null;
+  availability: Array<{ name: string; status: "available" | "unavailable" | "blocked" | "failed"; message: string }>;
+}
+
+export async function fetchDatasetEvidenceByType(datasetType: DatasetType): Promise<DatasetEvidenceState> {
+  const datasets = await fetchDatasets(datasetType);
+  const dataset = datasets.items.find((item) => item.dataset_type === datasetType);
+  if (!dataset) {
+    return {
+      metadata: null,
+      snapshot: null,
+      splitEvidence: null,
+      availability: [{ name: `${datasetType}_dataset`, status: "unavailable", message: `No persisted ${datasetType} dataset metadata is available.` }],
+    };
+  }
+  const [snapshot, validation] = await Promise.all([
+    fetchDatasetExplorer(dataset.dataset_id),
+    datasetType === "training" ? fetchHistoricalValidation("phase9-final-validation-candidate") : Promise.resolve(null),
+  ]);
+  return {
+    metadata: mapDatasetSummary(dataset),
+    snapshot,
+    splitEvidence: validation?.dataset_and_split ?? null,
+    availability: [
+      ...(snapshot ? [] : [{ name: "profile", status: "unavailable" as const, message: "No persisted dataset profile artifact is available; raw data was not reprofiled." }]),
+      ...(validation?.availability ?? []),
+    ],
+  };
 }
 
 function mapFeature(feature: NonNullable<BackendDatasetAnalyticsResponse["feature_page"]>["items"][number]): FeatureStatistics {

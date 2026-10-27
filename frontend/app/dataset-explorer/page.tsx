@@ -8,26 +8,30 @@ import { DataQualitySummary } from "@/components/datasets/data-quality-summary";
 import { DatasetOverview } from "@/components/datasets/dataset-overview";
 import { DatasetUpload } from "@/components/datasets/dataset-upload";
 import { FeatureAnalysis } from "@/components/datasets/feature-analysis";
+import { HistoricalDatasetEvidence } from "@/components/datasets/historical-dataset-evidence";
 import { PreprocessingPipeline } from "@/components/datasets/preprocessing-pipeline";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/ui/feedback";
-import { fetchDatasetExplorer, fetchDatasetExplorerByType } from "@/services/dataset-service";
+import { fetchDatasetEvidenceByType, fetchDatasetExplorer } from "@/services/dataset-service";
 import type { DatasetType, DatasetExplorerSnapshot } from "@/types";
 
 export default function DatasetExplorerPage() {
   const [activeDatasetType, setActiveDatasetType] = React.useState<DatasetType>("training");
   const [snapshots, setSnapshots] = React.useState<Partial<Record<DatasetType, DatasetExplorerSnapshot>>>({});
+  const [evidence, setEvidence] = React.useState<Partial<Record<DatasetType, Awaited<ReturnType<typeof fetchDatasetEvidenceByType>>>> >({});
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const activeSnapshot = snapshots[activeDatasetType];
+  const activeEvidence = evidence[activeDatasetType];
 
   const load = React.useCallback(async (datasetType: DatasetType, refresh = false) => {
     if (refresh) setIsRefreshing(true); else setIsLoading(true);
     setError(null);
     try {
-      const snapshot = await fetchDatasetExplorerByType(datasetType);
-      setSnapshots((current) => ({ ...current, [datasetType]: snapshot ?? undefined }));
+      const nextEvidence = await fetchDatasetEvidenceByType(datasetType);
+      setEvidence((current) => ({ ...current, [datasetType]: nextEvidence }));
+      setSnapshots((current) => ({ ...current, [datasetType]: nextEvidence.snapshot ?? undefined }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "The dataset analytics could not be loaded.");
     } finally {
@@ -52,18 +56,19 @@ export default function DatasetExplorerPage() {
   }
 
   return (
-    <AppShell onRefresh={() => void load(activeDatasetType, true)} isRefreshing={isRefreshing} lastUpdated={activeSnapshot?.lastUpdated ?? "Loading persisted dataset analytics"}>
+       <AppShell onRefresh={() => void load(activeDatasetType, true)} isRefreshing={isRefreshing} lastUpdated={activeSnapshot?.lastUpdated ?? activeEvidence?.metadata?.updatedAt ?? "No persisted dataset evidence"}>
       <div className="mx-auto max-w-[1600px]">
-        <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
+         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <nav aria-label="Dataset Explorer sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted"><a className="hover:text-signal" href="#dataset-upload">01 / Import</a><a className="hover:text-signal" href="#dataset-overview">02 / Overview</a><a className="hover:text-signal" href="#data-quality">03 / Quality</a><a className="hover:text-signal" href="#class-distribution">04 / Classes</a><a className="hover:text-signal" href="#feature-analysis">05 / Features</a><a className="hover:text-signal" href="#preprocessing">06 / Splits</a></nav>
             <Button variant="ghost" size="sm" onClick={() => void load(activeDatasetType, true)} disabled={isRefreshing}><RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh explorer</Button>
           </div>
         </section>
         <DatasetUpload onUploaded={handleUploaded} />
-        {isLoading ? <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">Loading persisted dataset analytics…</p> : null}
-        {error ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><ErrorState title="Dataset analytics unavailable" description={error} onRetry={() => void load(activeDatasetType)} /></div> : null}
-        {!isLoading && !error && !activeSnapshot ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><EmptyState title={`No ${activeDatasetType} profile available`} description="The dataset registry is reachable, but this dataset has no persisted profiling artifact. Raw data was not reprofiled automatically." /></div> : null}
+         {isLoading ? <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">Loading persisted dataset analytics…</p> : null}
+         {error ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><ErrorState title="Dataset analytics unavailable" description={error} onRetry={() => void load(activeDatasetType)} /></div> : null}
+         {!isLoading && !error && activeEvidence?.metadata ? <HistoricalDatasetEvidence metadata={activeEvidence.metadata} splitEvidence={activeEvidence.splitEvidence} availability={activeEvidence.availability} /> : null}
+         {!isLoading && !error && !activeSnapshot ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><EmptyState title={`No persisted ${activeDatasetType} profile available`} description="Dataset metadata and any historical split evidence remain available above. This page did not open or reprofile a raw source file." /></div> : null}
         {!isLoading && !error && activeSnapshot ? <>
           <DatasetOverview snapshot={activeSnapshot} onDatasetTypeChange={setActiveDatasetType} />
           <DataQualitySummary quality={activeSnapshot.quality} missingValues={activeSnapshot.missingValues} />

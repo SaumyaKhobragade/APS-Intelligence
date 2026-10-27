@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 try:
     from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict  # type: ignore[attr-defined]
 except ImportError:  # pydantic-settings 2.5.x has no NoDecode marker.
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -78,6 +78,44 @@ class Settings(BaseSettings):
                 return json.loads(value)
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def validate_and_normalize(self) -> "Settings":
+        if self.environment.lower() == "production":
+            for origin in self.allowed_cors_origins:
+                if origin.strip() == "*":
+                    raise ValueError("Wildcard '*' CORS origin is strictly forbidden in production mode.")
+
+        backend_dir = Path(__file__).resolve().parents[2]
+        if not self.persistent_storage_dir.is_absolute() and not self.persistent_storage_dir.exists():
+            candidate = backend_dir / self.persistent_storage_dir
+            if candidate.exists():
+                self.persistent_storage_dir = candidate
+
+        if not self.dataset_storage_dir.is_absolute() and not self.dataset_storage_dir.exists():
+            candidate = backend_dir / self.dataset_storage_dir
+            if candidate.exists():
+                self.dataset_storage_dir = candidate
+
+        if not self.model_artifact_dir.is_absolute() and not self.model_artifact_dir.exists():
+            candidate = backend_dir / self.model_artifact_dir
+            if candidate.exists():
+                self.model_artifact_dir = candidate
+
+        if not self.report_storage_dir.is_absolute() and not self.report_storage_dir.exists():
+            candidate = backend_dir / self.report_storage_dir
+            if candidate.exists():
+                self.report_storage_dir = candidate
+
+        if self.database_url.startswith("sqlite:///"):
+            db_rel = self.database_url[len("sqlite:///"):]
+            rel_path = Path(db_rel)
+            if not rel_path.is_absolute() and not rel_path.exists():
+                candidate = (backend_dir / rel_path).resolve()
+                if candidate.exists():
+                    self.database_url = f"sqlite:///{candidate.as_posix()}"
+
+        return self
 
     def ensure_storage_directories(self) -> None:
         """Create local artifact directories without touching database data."""

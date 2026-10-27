@@ -22,6 +22,17 @@ def test_application_starts_and_health_endpoint_returns_contract(client: TestCli
     }
 
 
+def test_verbose_health_endpoint_returns_diagnostics(client: TestClient) -> None:
+    response = client.get("/api/v1/health?verbose=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["api_status"] == "operational"
+    assert data["database"] == "operational"
+    assert data["storage"] == "operational"
+
+
 def test_startup_creates_configured_storage_layout(client: TestClient, test_settings: Settings) -> None:
     assert test_settings.persistent_storage_dir.is_dir()
     assert test_settings.dataset_storage_dir.joinpath("raw").is_dir()

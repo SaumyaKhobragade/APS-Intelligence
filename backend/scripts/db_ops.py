@@ -1,0 +1,214 @@
+"""SQLite Database Operations Utility: Backup, Restore & Verification.
+
+Uses Python's sqlite3 Online Backup API for point-in-time consistent backups.
+"""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+from pathlib import Path
+import sqlite3
+import sys
+
+# Ensure backend root is on sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = SCRIPT_DIR.parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+try:
+    from app.core.config import get_settings
+
+    DEFAULT_DB_PATH = Path(get_settings().database_url.replace("sqlite:///", ""))
+    if not DEFAULT_DB_PATH.is_absolute():
+        DEFAULT_DB_PATH = (BACKEND_DIR / DEFAULT_DB_PATH).resolve()
+except Exception:
+    DEFAULT_DB_PATH = BACKEND_DIR / "data" / "aps_intelligence.db"
+
+DEFAULT_BACKUP_DIR = BACKEND_DIR / "data" / "backups"
+
+
+def calculate_sha256(file_path: Path) -> str:
+    """Calculate SHA-256 digest of a file in streaming chunks."""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def verify_sqlite_integrity(db_path: Path) -> tuple[bool, str]:
+    """Run PRAGMA integrity_check on target SQLite database."""
+    if not db_path.exists():
+        return False, f"File does not exist: {db_path}"
+    try:
+        conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA integrity_check")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        if len(rows) == 1 and rows[0][0] == "ok":
+            return True, "ok"
+        messages = "; ".join(r[0] for r in rows)
+        return False, messages
+    except Exception as e:
+        return False, str(e)
+
+
+def get_table_counts(db_path: Path) -> dict[str, int]:
+    """Query row counts for all user tables in target database."""
+    counts: dict[str, int] = {}
+    conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tables = [row[0] for row in cursor.fetchall()]
+    for table in sorted(tables):
+        cursor.execute(f"SELECT COUNT(*) FROM \"{table}\"")  # noqa: S608
+        counts[table] = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+    return counts
+
+
+def backup_database(
+    source_db: Path = DEFAULT_DB_PATH,
+    backup_dir: Path = DEFAULT_BACKUP_DIR,
+    custom_name: str | None = None,
+) -> Path:
+    """Create a point-in-time consistent SQLite backup using Online Backup API."""
+    if not source_db.exists():
+        raise FileNotFoundError(f"Source database not found: {source_db}")
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = custom_name or f"aps_intelligence_backup_{timestamp}.db"
+    dest_path = backup_dir / filename
+
+    print(f"[*] Starting online backup...")
+    print(f"    Source: {source_db}")
+    print(f"    Destination: {dest_path}")
+
+    # Use online backup API
+    src_conn = sqlite3.connect(f"file:{source_db.as_posix()}?mode=ro", uri=True)
+    dest_conn = sqlite3.connect(dest_path.as_posix())
+
+    try:
+        with dest_conn:
+            src_conn.backup(dest_conn)
+    finally:
+        dest_conn.close()
+        src_conn.close()
+
+    # Integrity verification
+    is_valid, msg = verify_sqlite_integrity(dest_path)
+    if not is_valid:
+        raise RuntimeError(f"Backup failed integrity verification: {msg}")
+
+    size_bytes = dest_path.stat().st_size
+    sha256 = calculate_sha256(dest_path)
+
+    print(f"[+] Backup completed successfully.")
+    print(f"    Size: {size_bytes:,} bytes")
+    print(f"    SHA-256: {sha256}")
+    print(f"    Integrity Check: {msg}")
+    return dest_path
+
+
+def restore_database(
+    backup_file: Path,
+    target_db: Path = DEFAULT_DB_PATH,
+    force: bool = False,
+) -> None:
+    """Safely restore a SQLite database from a verified backup."""
+    if not backup_file.exists():
+        raise FileNotFoundError(f"Backup file not found: {backup_file}")
+
+    print(f"[*] Pre-flight integrity check on backup file: {backup_file}")
+    is_valid, msg = verify_sqlite_integrity(backup_file)
+    if not is_valid:
+        raise ValueError(f"Backup file failed integrity check: {msg}")
+
+    print(f"[+] Backup file integrity verified: {msg}")
+
+    # If target database exists, take safety backup before overwriting unless forced
+    if target_db.exists() and not force:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        safety_path = target_db.parent / "backups" / f"pre_restore_safety_{timestamp}.db"
+        safety_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"[*] Existing target found. Creating safety snapshot at {safety_path}...")
+        backup_database(source_db=target_db, backup_dir=safety_path.parent, custom_name=safety_path.name)
+
+    print(f"[*] Restoring from {backup_file} to {target_db}...")
+    target_db.parent.mkdir(parents=True, exist_ok=True)
+
+    src_conn = sqlite3.connect(f"file:{backup_file.as_posix()}?mode=ro", uri=True)
+    dest_conn = sqlite3.connect(target_db.as_posix())
+
+    try:
+        with dest_conn:
+            src_conn.backup(dest_conn)
+    finally:
+        dest_conn.close()
+        src_conn.close()
+
+    # Post-restore integrity verification
+    is_valid, msg = verify_sqlite_integrity(target_db)
+    if not is_valid:
+        raise RuntimeError(f"Restored database failed integrity check: {msg}")
+
+    table_counts = get_table_counts(target_db)
+    print(f"[+] Restore completed successfully.")
+    print(f"    Target: {target_db}")
+    print(f"    Size: {target_db.stat().st_size:,} bytes")
+    print(f"    SHA-256: {calculate_sha256(target_db)}")
+    print(f"    Integrity Check: {msg}")
+    print(f"    Table Counts:")
+    for tbl, count in table_counts.items():
+        print(f"      - {tbl}: {count} rows")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="APS Intelligence SQLite Management Utility")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Backup subcommand
+    backup_parser = subparsers.add_parser("backup", help="Create an online backup of the database")
+    backup_parser.add_argument("--source", type=Path, default=DEFAULT_DB_PATH, help="Path to source SQLite database")
+    backup_parser.add_argument("--dest-dir", type=Path, default=DEFAULT_BACKUP_DIR, help="Destination directory for backups")
+    backup_parser.add_argument("--name", type=str, default=None, help="Custom filename for backup")
+
+    # Restore subcommand
+    restore_parser = subparsers.add_parser("restore", help="Restore database from a backup file")
+    restore_parser.add_argument("--backup-file", type=Path, required=True, help="Path to backup file")
+    restore_parser.add_argument("--target", type=Path, default=DEFAULT_DB_PATH, help="Target SQLite database path")
+    restore_parser.add_argument("--force", action="store_true", help="Skip pre-restore safety snapshot")
+
+    # Verify subcommand
+    verify_parser = subparsers.add_parser("verify", help="Verify integrity and inspect database or backup file")
+    verify_parser.add_argument("--path", type=Path, default=DEFAULT_DB_PATH, help="Path to SQLite database to verify")
+
+    args = parser.parse_args()
+
+    if args.command == "backup":
+        backup_database(source_db=args.source, backup_dir=args.dest_dir, custom_name=args.name)
+    elif args.command == "restore":
+        restore_database(backup_file=args.backup_file, target_db=args.target, force=args.force)
+    elif args.command == "verify":
+        is_valid, msg = verify_sqlite_integrity(args.path)
+        print(f"File: {args.path}")
+        print(f"Integrity Check: {msg}")
+        if is_valid:
+            print(f"SHA-256: {calculate_sha256(args.path)}")
+            counts = get_table_counts(args.path)
+            print("Table Counts:")
+            for tbl, count in counts.items():
+                print(f"  - {tbl}: {count} rows")
+        else:
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -308,7 +308,9 @@ Logistic Regression and was therefore not included in this comparison.
 
 These measured results do not select a final production model or threshold.
 Phase 5 adds validation-only threshold optimization, calibration and
-decision-policy comparisons; official-test evaluation remains deferred.
+decision-policy comparisons. The later Phase 10 official-test evaluation is
+exposed only as immutable historical evidence and remains outside validation
+selection and production approval.
 
 ## Phase 5 threshold, calibration and decision-policy API
 
@@ -586,9 +588,11 @@ promotion state, production prediction counts, recent activity, latest
 validation metrics, artifact-integrity counts and reproducibility metadata.
 Metric records are explicitly scoped as `validation`, `official_test`,
 `synthetic` or `production`. The active local runtime database currently
-returns no official-test metrics and no production approval. The repository's
-isolated Phase 10 artifact is not automatically imported into this database,
-and no production approval is shown without an explicit Phase 7 promotion.
+returns no official-test metrics through its active analytics tables and no
+production approval. The isolated Phase 10 artifact is not automatically
+imported into this database; it is available through the dedicated read-only
+historical evidence route, and no production approval is shown without an
+explicit Phase 7 promotion.
 
 Dataset analytics reads persisted profile and split artifacts when present,
 returns source-file availability separately and paginates feature statistics.
@@ -787,6 +791,67 @@ only a configuration or also queues execution; this foundation makes no such
 claim. Pagination envelope fields, dataset fingerprint provenance, model
 artifact versioning and report content negotiation also remain decisions for
 the implementation phases.
+
+## Phase 11 historical evidence API
+
+Phase 11.2/11.3 exposes persisted development evidence through a dedicated
+read-only adapter layer. The adapters open `phase3_smoke.db`, `phase4_smoke.db`
+and `phase9_validation.db` with SQLite read-only connections and never merge
+those registries into `aps_intelligence.db`. Model binaries are not loaded for
+metadata or evidence display. Artifact references are resolved beneath the
+trusted model-artifact root and reported with existence, readability and
+checksum status.
+
+The routes are:
+
+- `GET /api/v1/historical-evidence/overview`
+- `GET /api/v1/historical-evidence/training-runs`
+- `GET /api/v1/historical-evidence/experiments`
+- `GET /api/v1/historical-evidence/experiments/{reference_id}`
+- `GET /api/v1/historical-evidence/validation/comparison`
+- `GET /api/v1/historical-evidence/validation/{reference_id}`
+- `GET /api/v1/historical-evidence/thresholds/{reference_id}`
+- `GET /api/v1/historical-evidence/calibration/{reference_id}`
+- `GET /api/v1/historical-evidence/official-test`
+
+Phase 9 nested metrics use the versioned normalization adapter
+`phase9-validation-nested-v1`. Cross-validation/search evidence is returned in
+a separate field from external validation evidence. The frozen Phase 9
+candidate remains `evaluated`, retains threshold `0.115` and isotonic
+calibration, and is explicitly labelled as not production approved. Missing
+or invalid evidence and unsafe artifact paths return explicit error/status
+information; they are not converted into successful empty results.
+
+Phase 10 official-test evidence is exposed by its own typed
+`phase10-official-test.v1` response. It remains a separate historical
+evaluation scope and is not merged into validation rankings or the active
+registry. The response contains the frozen threshold (`0.115`), CatBoost
+class-weighting strategy, isotonic calibration, persisted metrics, bootstrap
+intervals, confusion counts, PR/ROC curves, reliability evidence and artifact
+integrity statuses. The route reads persisted evidence files only; it does not
+open the raw official-test CSV, retrain, recalibrate, promote or create
+predictions.
+
+The live frontend consumes the historical routes as follows:
+
+- Dashboard: overview, validation comparison, candidate validation detail and
+  training dataset metadata.
+- Dataset Explorer: persisted dataset metadata, profile/quality analytics when
+  available, and Phase 9 split evidence. A missing training profile is shown
+  as unavailable rather than regenerated.
+- Model Comparison: validation comparison plus a separate Official Test
+  Evaluation section from `/historical-evidence/official-test`.
+- Threshold Optimization: read-only Phase 9 threshold and calibration
+  evidence; the frozen candidate threshold cannot be changed from this view.
+- Experiment History: Phase 3, Phase 4 and Phase 9 historical records,
+  including failed experiments and artifact/integrity statuses.
+
+Dataset listing and metadata requests use persisted application metadata only.
+Configured raw files are synchronized only by an explicit dataset operation,
+and training synchronization excludes the official test file by default. The
+official test CSV is not read by the historical evidence API or normal dataset
+listing/profile requests. The active database continues to have no approved
+model/policy pair, so the inference gate remains closed.
 
 ## Error response contract
 

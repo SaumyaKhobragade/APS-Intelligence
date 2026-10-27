@@ -94,7 +94,7 @@ class DatasetService:
         self.session.refresh(existing)
         return self._summary(existing)
 
-    def sync_configured_datasets(self, *, include_testing: bool = True) -> list[DatasetSummary]:
+    def sync_configured_datasets(self, *, include_testing: bool = False) -> list[DatasetSummary]:
         configured: dict[DatasetKind, Path] = {}
         dataset_types: tuple[DatasetKind, ...] = ("training", "testing") if include_testing else ("training",)
         for dataset_type in dataset_types:
@@ -112,7 +112,6 @@ class DatasetService:
         return summaries
 
     def list_datasets(self, page: int, page_size: int, dataset_type: DatasetKind | None = None) -> tuple[list[DatasetSummary], int]:
-        self.sync_configured_datasets()
         statement = select(DatasetMetadata).order_by(DatasetMetadata.imported_at.desc())
         if dataset_type:
             statement = statement.where(DatasetMetadata.dataset_type == dataset_type)
@@ -121,7 +120,7 @@ class DatasetService:
         start = (page - 1) * page_size
         return [self._summary(record) for record in records[start : start + page_size]], total
 
-    def get_metadata(self, dataset_id: str, *, sync: bool = True) -> DatasetMetadata:
+    def get_metadata(self, dataset_id: str, *, sync: bool = False) -> DatasetMetadata:
         if sync:
             self.sync_configured_datasets()
         model = self.session.get(DatasetMetadata, dataset_id)
@@ -129,7 +128,7 @@ class DatasetService:
             raise ResourceNotFoundError(f"Dataset '{dataset_id}' was not found.")
         return model
 
-    def load(self, dataset_id: str, *, sync: bool = True) -> tuple[DatasetMetadata, IngestedDataset]:
+    def load(self, dataset_id: str, *, sync: bool = False) -> tuple[DatasetMetadata, IngestedDataset]:
         metadata = self.get_metadata(dataset_id, sync=sync)
         try:
             dataset_type = metadata.dataset_type  # type: ignore[assignment]
@@ -140,7 +139,16 @@ class DatasetService:
             raise DatasetValidationError(f"Dataset file could not be read: {metadata.source_file_name}.") from exc
 
     def profile(self, dataset_id: str) -> DatasetProfileResponse:
-        metadata, ingested = self.load(dataset_id)
+        metadata = self.get_metadata(dataset_id)
+        if metadata.dataset_type == "testing":
+            if metadata.profile_path:
+                profile_path = self.settings.dataset_metadata_dir / metadata.profile_path
+                if profile_path.is_file():
+                    return DatasetProfileResponse.model_validate(read_json(profile_path))
+            raise InvalidRequestError(
+                "The official APS test dataset has no persisted profile artifact; raw test data is isolated from profile generation."
+            )
+        metadata, ingested = self.load(dataset_id, sync=False)
         metadata.status = "profiled"
         summary = self._summary(metadata)
         profile = profile_dataset(ingested, summary)
@@ -162,7 +170,12 @@ class DatasetService:
         return FeaturePageResponse(items=items[start : start + page_size], total=total, page=page, page_size=page_size, search=search)
 
     def feature(self, dataset_id: str, feature_name: str) -> FeatureDetailResponse:
-        _, ingested = self.load(dataset_id)
+        metadata = self.get_metadata(dataset_id)
+        if metadata.dataset_type == "testing":
+            raise InvalidRequestError(
+                "Feature-level inspection of the official APS test dataset is unavailable without a persisted profile artifact."
+            )
+        _, ingested = self.load(dataset_id, sync=False)
         if feature_name not in ingested.feature_columns:
             raise ResourceNotFoundError(f"Feature '{feature_name}' was not found in dataset '{dataset_id}'.")
         return feature_detail(ingested.frame, feature_name, feature_summary(ingested.frame, feature_name), ingested.feature_columns)

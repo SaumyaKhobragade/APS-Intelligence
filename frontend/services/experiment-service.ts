@@ -1,8 +1,8 @@
 import { apiDownload, apiFetch } from "@/services/api-client";
+import { fetchHistoricalExperiment, fetchHistoricalExperiments, fetchHistoricalTrainingRuns, mapHistoricalDetailToExperiment, mapHistoricalSummaryToExperiment } from "@/services/historical-evidence-service";
 import type {
   BackendEvaluationMetrics,
   BackendExperimentDetail,
-  BackendExperimentListResponse,
   BackendExperimentSummary,
 } from "@/services/backend-contracts";
 import type {
@@ -16,15 +16,17 @@ import type {
 } from "@/types";
 
 export function fetchExperiments(pageSize = 100): Promise<ExperimentRegistrySnapshot> {
-  return apiFetch<BackendExperimentListResponse>(`/experiments?page=1&page_size=${pageSize}`).then((response) => ({
-    experiments: response.items.map(mapExperimentSummary),
+  return Promise.all([fetchHistoricalExperiments(pageSize), fetchHistoricalTrainingRuns(pageSize)]).then(([experiments, trainingRuns]) => ({
+    experiments: [...trainingRuns.items, ...experiments.items]
+      .sort((first, second) => (second.created_at ?? "").localeCompare(first.created_at ?? ""))
+      .map(mapHistoricalSummaryToExperiment),
     lastUpdated: new Date().toISOString(),
-    sourceLabel: "Persisted backend experiment registry",
+    sourceLabel: "Historical Phase 3/4/9 evidence",
   }));
 }
 
 export function fetchExperiment(experimentId: string): Promise<ExperimentHistoryRecord> {
-  return apiFetch<BackendExperimentDetail>(`/experiments/${encodeURIComponent(experimentId)}`).then(mapExperimentDetail);
+  return fetchHistoricalExperiment(experimentId).then(mapHistoricalDetailToExperiment);
 }
 
 export function fetchExperimentConfiguration(experimentId: string): Promise<ExperimentConfigurationSnapshot> {

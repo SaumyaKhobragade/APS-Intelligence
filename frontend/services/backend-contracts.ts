@@ -2,7 +2,7 @@ export type BackendReferenceType = "training_run" | "experiment";
 
 export interface BackendAvailabilityNote {
   name: string;
-  status: "available" | "unavailable" | "blocked";
+  status: "available" | "unavailable" | "blocked" | "failed";
   message: string;
 }
 
@@ -563,4 +563,211 @@ export interface BackendExperimentListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export type BackendHistoricalEvidenceScope = "historical_training" | "cross_validation" | "validation" | "official_test" | "internal_selection";
+
+export interface BackendHistoricalAvailability {
+  name: string;
+  status: "available" | "unavailable" | "blocked" | "failed";
+  message: string;
+}
+
+export interface BackendHistoricalConfusionMatrix {
+  true_negative: number;
+  false_positive: number;
+  false_negative: number;
+  true_positive: number;
+}
+
+export interface BackendHistoricalMetric {
+  scope: BackendHistoricalEvidenceScope;
+  label: string;
+  threshold?: number | null;
+  pr_auc?: number | null;
+  roc_auc?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  f1_score?: number | null;
+  specificity?: number | null;
+  balanced_accuracy?: number | null;
+  accuracy?: number | null;
+  false_positive_cost?: number | null;
+  false_negative_cost?: number | null;
+  estimated_business_cost?: number | null;
+  business_cost_note?: string | null;
+  confusion_matrix?: BackendHistoricalConfusionMatrix | null;
+  source_reference: string;
+}
+
+export interface BackendHistoricalCrossValidation {
+  pr_auc_mean?: number | null;
+  pr_auc_std?: number | null;
+  folds?: number | null;
+  search_budget?: number | null;
+  source_reference: string;
+}
+
+export interface BackendHistoricalArtifact {
+  logical_name: string;
+  relative_path: string;
+  exists: boolean;
+  readable: boolean;
+  size_bytes?: number | null;
+  stored_checksum?: string | null;
+  actual_checksum?: string | null;
+  checksum_status: "verified" | "mismatch" | "missing" | "not_recorded" | "unavailable";
+  message?: string | null;
+}
+
+export interface BackendHistoricalRunSummary {
+  reference_type: BackendReferenceType;
+  reference_id: string;
+  phase: "phase3" | "phase4" | "phase9";
+  model_name: string;
+  model_version: string;
+  imbalance_strategy?: string | null;
+  preprocessing_strategy?: string | null;
+  dataset_id: string;
+  dataset_fingerprint?: string | null;
+  status: string;
+  lifecycle_status?: string | null;
+  threshold?: number | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  primary_metric?: number | null;
+  validation_metrics?: BackendHistoricalMetric | null;
+  cross_validation?: BackendHistoricalCrossValidation | null;
+  artifact_integrity_status: string;
+  artifact_available: boolean;
+  source_database: string;
+  candidate_label?: string | null;
+  curves?: Record<string, unknown> | null;
+  training_duration_seconds?: number | null;
+  inference_duration_seconds?: number | null;
+}
+
+export interface BackendHistoricalRunDetail extends BackendHistoricalRunSummary {
+  configuration: Record<string, unknown>;
+  hyperparameters: Record<string, unknown>;
+  search_results: Array<Record<string, unknown>>;
+  feature_importance: Array<Record<string, unknown>>;
+  metrics: BackendHistoricalMetric[];
+  artifacts: BackendHistoricalArtifact[];
+  availability: BackendHistoricalAvailability[];
+  provenance: string[];
+  error_message?: string | null;
+}
+
+export interface BackendHistoricalOverviewResponse {
+  evidence_version: string;
+  training_runs: BackendHistoricalRunSummary[];
+  experiments: BackendHistoricalRunSummary[];
+  validation_comparison: BackendHistoricalRunSummary[];
+  candidate_reference_id?: string | null;
+  candidate_lifecycle_status?: string | null;
+  candidate_label?: string | null;
+  availability: BackendHistoricalAvailability[];
+}
+
+export interface BackendHistoricalRunListResponse {
+  items: BackendHistoricalRunSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+  availability: BackendHistoricalAvailability[];
+}
+
+export interface BackendHistoricalValidationComparisonResponse {
+  evidence_version: string;
+  normalization_version: string;
+  items: BackendHistoricalRunSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+  evaluation_scope: "validation";
+  availability: BackendHistoricalAvailability[];
+}
+
+export interface BackendHistoricalValidationResponse {
+  evidence_version: string;
+  normalization_version: string;
+  reference: BackendHistoricalRunSummary;
+  metrics: BackendHistoricalMetric[];
+  cross_validation?: BackendHistoricalCrossValidation | null;
+  dataset_and_split?: Record<string, unknown> | null;
+  curves?: Record<string, unknown> | null;
+  feature_importance: Array<Record<string, unknown>>;
+  artifacts: BackendHistoricalArtifact[];
+  availability: BackendHistoricalAvailability[];
+  provenance: string[];
+}
+
+export interface BackendHistoricalThresholdPoint {
+  threshold: number;
+  precision?: number | null;
+  recall?: number | null;
+  f1_score?: number | null;
+  specificity?: number | null;
+  false_positive?: number | null;
+  false_negative?: number | null;
+  true_positive?: number | null;
+  true_negative?: number | null;
+  business_cost?: number | null;
+  source_reference: string;
+}
+
+export interface BackendHistoricalThresholdResponse {
+  evidence_version: string;
+  reference_id: string;
+  model_name: string;
+  model_version: string;
+  calibration_method: string;
+  frozen_threshold: number;
+  selection_objective: string;
+  selection_scope: string;
+  validation?: BackendHistoricalMetric | null;
+  threshold_points: BackendHistoricalThresholdPoint[];
+  calibration_metrics: Record<string, number | null>;
+  artifacts: BackendHistoricalArtifact[];
+  availability: BackendHistoricalAvailability[];
+  provenance: string[];
+}
+
+export interface BackendHistoricalCalibrationResponse {
+  evidence_version: string;
+  reference_id: string;
+  model_name: string;
+  model_version: string;
+  selected_method: string;
+  evaluation_scope: string;
+  metrics: Record<string, number | null>;
+  reliability_curve: Array<Record<string, unknown>>;
+  artifacts: BackendHistoricalArtifact[];
+  availability: BackendHistoricalAvailability[];
+  provenance: string[];
+}
+
+export interface BackendOfficialTestEvidenceResponse {
+  evidence_version: string;
+  evaluation_id: string;
+  candidate_id: string;
+  candidate_label: string;
+  evaluation_scope: "official_test";
+  model_name: string;
+  imbalance_strategy: string;
+  calibration_method: string;
+  frozen_threshold: number;
+  metrics: BackendHistoricalMetric;
+  confidence_intervals: Record<string, { lower: number; upper: number }>;
+  confidence_interval_method?: string | null;
+  confidence_interval_replicates?: number | null;
+  calibration_metrics: Record<string, number | null>;
+  reliability_curve: Array<Record<string, unknown>>;
+  precision_recall_curve: Record<string, number[]>;
+  roc_curve: Record<string, number[]>;
+  integrity_flags: Record<string, boolean>;
+  artifacts: BackendHistoricalArtifact[];
+  availability: BackendHistoricalAvailability[];
+  provenance: string[];
 }

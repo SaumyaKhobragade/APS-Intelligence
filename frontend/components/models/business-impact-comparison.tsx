@@ -11,6 +11,9 @@ interface BusinessImpactComparisonProps {
 
 function BusinessImpactComparison({ models, selectedModelId, onSelectModel }: BusinessImpactComparisonProps) {
   const maxCost = Math.max(...models.map((model) => model.businessImpact.estimatedCost));
+  const selected = models.find((model) => model.modelId === selectedModelId) ?? models[0];
+  const unitFp = selected?.businessImpact.unitFalsePositiveCost ?? 1;
+  const unitFn = selected?.businessImpact.unitFalseNegativeCost ?? 10;
 
   return (
     <section id="business-impact" aria-labelledby="business-impact-heading" className="px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
@@ -20,11 +23,11 @@ function BusinessImpactComparison({ models, selectedModelId, onSelectModel }: Bu
           <h2 id="business-impact-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">The cheapest threshold is its own question.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">PR-AUC ranks the precision-recall surface. Business cost depends on the selected operating point and the asymmetric penalty for missed failures.</p>
         </div>
-        <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> 10 × FP + 500 × FN</Badge>
+         <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> {unitFp} × FP + {unitFn} × FN</Badge>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[0.75fr_1.25fr]">
-        <div className="border-t border-charcoal bg-charcoal p-6 text-white sm:p-8"><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Cost model</p><p className="mt-6 font-display text-5xl leading-[0.9] tracking-[-0.05em]">False negatives weigh 50× more.</p><p className="mt-6 text-sm leading-6 text-silver/75">That weighting can change which model is operationally preferred at a chosen threshold. Use this comparison as a decision aid, not a claim that PR-AUC alone optimizes cost.</p><div className="mt-10 border-t border-white/15 pt-5 font-mono text-[10px] uppercase leading-6 tracking-[0.1em] text-silver/65">Inspection / $10 per false positive<br />Missed failure / $500 per false negative</div></div>
+         <div className="border-t border-charcoal bg-charcoal p-6 text-white sm:p-8"><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Illustrative validation cost</p><p className="mt-6 font-display text-5xl leading-[0.9] tracking-[-0.05em]">False negatives carry the larger weight.</p><p className="mt-6 text-sm leading-6 text-silver/75">The displayed costs come from the persisted validation metric configuration. Use this comparison as a decision aid, not as measured operational fleet cost.</p><div className="mt-10 border-t border-white/15 pt-5 font-mono text-[10px] uppercase leading-6 tracking-[0.1em] text-silver/65">Inspection / ${unitFp} per false positive<br />Missed failure / ${unitFn} per false negative</div></div>
         <div className="min-w-0 overflow-x-auto border-y border-line">
           <div className="min-w-[38rem]">
             <div className="grid grid-cols-[minmax(10rem,1fr)_4rem_4rem_7rem_7rem_7rem] gap-3 border-b border-line bg-surface px-3 py-3 font-mono text-[10px] uppercase tracking-[0.11em] text-muted"><span>Model</span><span>FP</span><span>FN</span><span>Inspection</span><span>Missed failure</span><span>Total cost</span></div>

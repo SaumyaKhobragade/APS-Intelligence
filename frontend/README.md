@@ -39,6 +39,20 @@ the backend responses. The isolated Phase 9 validation candidate and Phase 10
 official-test artifacts are not merged into the active local registry by the
 frontend.
 
+Model Comparison presents Phase 10 as a distinct **Official Test Evaluation**
+section. It displays the persisted frozen threshold (`0.115`), CatBoost with
+class weighting, isotonic calibration, official-test metrics, bootstrap
+confidence intervals, confusion counts, PR/ROC curves and calibration evidence.
+The section is explicitly historical and states that these are not production
+monitoring metrics. It consumes `/api/v1/historical-evidence/official-test`
+and never reads the raw official-test CSV in the browser.
+
+The Threshold Optimization page is a read-only historical evidence viewer for
+the Phase 9 candidate. Experiment History labels Phase 3/4/9 records as
+historical, keeps failed runs visible and exposes strategy, validation/CV
+scope, artifact availability and integrity information without treating those
+records as production runs.
+
 ## Checks
 
 ```powershell

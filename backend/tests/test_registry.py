@@ -20,6 +20,7 @@ from app.models.prediction import DecisionPolicy, PredictionRecord
 from app.models.registry import ModelPromotion
 from app.models.training import ModelTrainingRun
 from app.services.model_training.artifacts import training_artifact_paths
+from app.services.registry import ModelRegistryService
 from app.services.reproducibility import configuration_fingerprint
 
 
@@ -172,6 +173,10 @@ def test_registry_listing_lineage_and_version_history(registry_environment: dict
 def test_artifact_inventory_checksum_and_modification_detection(registry_environment: dict[str, Any]) -> None:
     client: TestClient = registry_environment["client"]
     path = f"/api/v1/models/registry/training_run/{registry_environment['run_id']}/artifacts"
+    with registry_environment["app"].state.session_factory() as session:
+        ModelRegistryService(registry_environment["settings"], session).persist_artifact_verification(
+            "training_run", registry_environment["run_id"]
+        )
     verified = client.get(path)
     assert verified.status_code == 200
     assert verified.json()["all_verified"] is True
@@ -180,6 +185,25 @@ def test_artifact_inventory_checksum_and_modification_detection(registry_environ
     assert modified.status_code == 200
     assert modified.json()["all_verified"] is False
     assert any(item["status"] == "mismatch" for item in modified.json()["items"])
+
+
+def test_artifact_verification_get_is_read_only(registry_environment: dict[str, Any]) -> None:
+    application = registry_environment["app"]
+    run_id = registry_environment["run_id"]
+    before_session = application.state.session_factory()
+    before = before_session.get(ModelTrainingRun, run_id)
+    assert before is not None
+    before_state = (before.artifact_checksums_json, before.artifact_integrity_status)
+    before_session.close()
+
+    response = registry_environment["client"].get(f"/api/v1/models/registry/training_run/{run_id}/artifacts")
+    assert response.status_code == 200, response.text
+
+    after_session = application.state.session_factory()
+    after = after_session.get(ModelTrainingRun, run_id)
+    assert after is not None
+    assert (after.artifact_checksums_json, after.artifact_integrity_status) == before_state
+    after_session.close()
 
 
 def test_reproducibility_reports_missing_source_and_dependency_mismatch(registry_environment: dict[str, Any]) -> None:

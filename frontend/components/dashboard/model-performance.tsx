@@ -78,6 +78,7 @@ function ModelPerformance({ models }: ModelPerformanceProps) {
               <TableRow>
                 <TableHead>Model</TableHead>
                 <TableHead>PR-AUC</TableHead>
+                <TableHead>ROC-AUC</TableHead>
                 <TableHead>Precision</TableHead>
                 <TableHead>Recall</TableHead>
                 <TableHead>F1</TableHead>
@@ -88,6 +89,7 @@ function ModelPerformance({ models }: ModelPerformanceProps) {
                 <TableRow key={model.modelId} className={model.modelId === bestModelId ? "bg-signal-wash/45" : undefined}>
                   <TableCell className="whitespace-nowrap text-xs font-medium">{model.modelName}</TableCell>
                   <TableCell className={`font-mono text-xs ${model.modelId === bestModelId ? "font-semibold text-signal" : ""}`}>{formatPercent(model.prAuc)}</TableCell>
+                  <TableCell className="font-mono text-xs">{model.rocAuc ? formatPercent(model.rocAuc) : "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{formatPercent(model.precision)}</TableCell>
                   <TableCell className="font-mono text-xs">{formatPercent(model.recall)}</TableCell>
                   <TableCell className="font-mono text-xs">{formatPercent(model.f1Score)}</TableCell>

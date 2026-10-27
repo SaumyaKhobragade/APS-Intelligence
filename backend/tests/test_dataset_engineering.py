@@ -17,6 +17,7 @@ from app.services.dataset.ingestion import (
     validate_compatible_schemas,
     validate_dataset_filename,
 )
+from app.services.dataset.service import DatasetService
 from app.services.dataset.preprocessing import fit_preprocessing_pipeline
 from app.services.dataset.profiling import (
     build_class_distribution,
@@ -170,6 +171,8 @@ def dataset_client(test_settings: Settings) -> Iterator[TestClient]:
     application = create_app(test_settings)
     with TestClient(application) as test_client:
         Base.metadata.create_all(application.state.engine)
+        with application.state.session_factory() as session:
+            DatasetService(test_settings, session).sync_configured_datasets(include_testing=True)
         yield test_client
 
 
@@ -227,3 +230,23 @@ def test_dataset_api_profiles_preprocesses_and_imports_without_production_data(d
         files={"file": ("../unsafe.txt", b"class,sensor_a\nneg,1\n", "text/plain")},
     )
     assert invalid_upload.status_code == 400
+
+
+def test_dataset_listing_reads_persisted_metadata_without_opening_official_test_csv(
+    dataset_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.dataset import service as dataset_service_module
+
+    original_read_dataset = dataset_service_module.read_dataset
+
+    def fail_if_official_test_is_read(path: Path, *args: object, **kwargs: object):
+        if path.name == "aps_failure_test_set.csv":
+            raise AssertionError("dataset listing must not open the official APS test CSV")
+        return original_read_dataset(path, *args, **kwargs)
+
+    monkeypatch.setattr(dataset_service_module, "read_dataset", fail_if_official_test_is_read)
+    response = dataset_client.get("/api/v1/datasets")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 2

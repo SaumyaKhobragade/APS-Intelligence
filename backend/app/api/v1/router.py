@@ -10,6 +10,7 @@ from app.api.v1.endpoints.experiments import router as experiments_router
 from app.api.v1.endpoints.phase5 import router as phase5_router
 from app.api.v1.endpoints.predictions import router as predictions_router
 from app.api.v1.endpoints.registry import router as registry_router
+from app.api.v1.endpoints.historical_evidence import router as historical_evidence_router
 
 
 router = APIRouter()
@@ -21,6 +22,7 @@ router.include_router(experiments_router)
 router.include_router(phase5_router)
 router.include_router(predictions_router)
 router.include_router(registry_router)
+router.include_router(historical_evidence_router)
 
 # Future endpoint modules should be included here as they become real backend
 # contracts: dashboard, datasets, models, predictions and future analytics.

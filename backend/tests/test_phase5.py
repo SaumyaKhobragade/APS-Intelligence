@@ -12,6 +12,7 @@ from app.core.config import Settings
 from app.database.base import Base
 from app.main import create_app
 from app.schemas.phase5 import ThresholdOptimizationRequest
+from app.services.dataset.service import DatasetService
 from app.services.probability_calibration import fit_calibration_methods
 from app.services.threshold_optimization import evaluate_threshold_point, optimize_thresholds
 
@@ -227,6 +228,8 @@ def phase5_client(test_settings: Settings) -> Iterator[TestClient]:
     application = create_app(test_settings)
     with TestClient(application) as client:
         Base.metadata.create_all(application.state.engine)
+        with application.state.session_factory() as session:
+            DatasetService(test_settings, session).sync_configured_datasets(include_testing=True)
         yield client
 
 

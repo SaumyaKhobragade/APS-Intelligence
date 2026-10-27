@@ -5,13 +5,14 @@ export interface DatasetMetadata {
   featureCount: number;
   rowCount: number;
   positiveClassLabel: string;
-  missingValueCount: number;
+  missingValueCount?: number;
   updatedAt: string;
   datasetType?: DatasetType;
   targetColumn?: string;
   fileSizeBytes?: number;
   status?: DatasetStatus;
   uploadedAt?: string;
+  fingerprint?: string;
 }
 
 export type DatasetType = "training" | "testing";
@@ -91,6 +92,11 @@ export interface ModelMetrics {
   f1Score: number;
   threshold: number;
   evaluatedAt: string;
+  rocAuc?: number;
+  specificity?: number;
+  balancedAccuracy?: number;
+  evaluationScope?: "validation" | "official_test" | "production" | "synthetic";
+  candidateLabel?: string;
 }
 
 export type ModelEvaluationStatus = "completed" | "not_available";
@@ -111,7 +117,7 @@ export type HyperparameterValue = string | number | boolean;
 
 export interface ModelEvaluation extends ModelMetrics {
   modelType: string;
-  trainingDurationSeconds: number;
+  trainingDurationSeconds?: number;
   evaluationStatus: ModelEvaluationStatus;
   trainingDataset: string;
   evaluationDataset: string;
@@ -119,7 +125,14 @@ export interface ModelEvaluation extends ModelMetrics {
   confusionMatrix: ConfusionMatrix;
   businessImpact: BusinessImpactSummary;
   precisionRecallCurve: PrecisionRecallPoint[];
+  rocCurve?: Array<{ falsePositiveRate: number; truePositiveRate: number; threshold: number }>;
   featureImportance?: FeatureImportance[];
+  crossValidation?: { prAucMean?: number; prAucStd?: number; folds?: number; searchBudget?: number; sourceReference: string };
+  artifactIntegrityStatus?: string;
+  artifactAvailable?: boolean;
+  sourceDatabase?: string;
+  strategy?: string;
+  curvesAvailable?: boolean;
 }
 
 export interface ModelComparisonSnapshot {
@@ -224,6 +237,8 @@ export interface BusinessImpactSummary {
   falsePositiveCost: number;
   falseNegativeCost: number;
   estimatedCost: number;
+  unitFalsePositiveCost?: number;
+  unitFalseNegativeCost?: number;
 }
 
 export interface CostWeights {
@@ -248,7 +263,8 @@ export interface ThresholdMetrics {
 }
 
 export interface ThresholdCurvePoint extends ThresholdMetrics {
-  source: "validation_checkpoint";
+  source: "validation_checkpoint" | "internal_selection";
+  scope?: "validation" | "internal_selection";
 }
 
 export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "completed" | "insufficient_sample" | "failed" | "not_available";
@@ -287,6 +303,10 @@ export interface ThresholdModelEvaluation {
   };
   costWeights?: CostWeights;
   methodologyNote?: string;
+  readOnly?: boolean;
+  frozenThreshold?: number;
+  provenance?: string[];
+  calibrationMetrics?: Record<string, number | null>;
 }
 
 export interface ThresholdOptimizationSnapshot {
@@ -393,6 +413,15 @@ export interface ExperimentHistoryRecord {
   isDemonstration: boolean;
   evaluationResults: ExperimentEvaluationResults;
   details: ExperimentDetails;
+  source?: "historical" | "active";
+  phase?: "phase3" | "phase4" | "phase9";
+  lifecycleStatus?: string;
+  artifactIntegrityStatus?: string;
+  artifactAvailable?: boolean;
+  candidateLabel?: string;
+  crossValidation?: { prAucMean?: number; prAucStd?: number; folds?: number; searchBudget?: number; sourceReference: string };
+  errorMessage?: string;
+  strategy?: string;
 }
 
 export interface ExperimentDetails {
@@ -449,8 +478,13 @@ export interface DashboardSnapshot {
   businessImpact: BusinessImpactSummary | null;
   recentExperiments: ExperimentRecord[];
   lastUpdated: string;
-  availability?: { name: string; status: "available" | "unavailable" | "blocked"; message: string }[];
+  availability?: { name: string; status: "available" | "unavailable" | "blocked" | "failed"; message: string }[];
   sourceLabel?: string;
+  candidateStatus?: string;
+  candidateLabel?: string;
+  candidateThreshold?: number;
+  candidateValidation?: ModelEvaluation;
+  quality?: DataQualitySummary | null;
 }
 
 export interface DatasetExplorerSnapshot {
@@ -462,4 +496,7 @@ export interface DatasetExplorerSnapshot {
   features: FeatureStatistics[];
   preprocessing: PreprocessingStage[];
   lastUpdated: string;
+  profileAvailable?: boolean;
+  fingerprint?: string;
+  availability?: { name: string; status: "available" | "unavailable" | "blocked" | "failed"; message: string }[];
 }

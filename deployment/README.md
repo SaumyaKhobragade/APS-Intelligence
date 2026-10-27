@@ -250,14 +250,22 @@ Add the following job to `crontab -e` for daily automated backups at 02:00 UTC:
 ```
 
 ### 5.5 Database Restoration Procedure
-The restore utility enforces mandatory safety checks:
-1. **Service Manager Verification**: Enforces that the production `aps-backend` systemd service is completely stopped (`systemctl is-active aps-backend`) before proceeding. Restore refuses to proceed if the service is running.
-2. **Explicit Non-Systemd Confirmation Guard**: In non-systemd or test environments where `systemctl` is not present, requires `--confirmed-offline-maintenance` to prevent accidental overwrites.
-3. **Supplementary Process Lock Detection**: Uses SQLite exclusive locking checks to verify no stray background processes hold active SQLite transactions.
-4. **Sidecar (-wal, -shm, -journal) Isolation & Archival**: Detects existing sidecar files, archives them alongside the safety snapshot, and cleanly removes stale sidecars upon atomic database swap so that restored databases never inherit corrupt or stale WAL/SHM pages.
-5. **Pre-flight Integrity & Alembic Verification**: Validates SQLite integrity (`PRAGMA integrity_check`) and schema compatibility / supported Alembic revision (`20261027_0005`) on the backup file.
-6. **Mandatory Safety Snapshot**: Automatically creates a timestamped safety backup of the active database (and any active sidecars) before any modification.
-7. **Staging Database Verification & Atomic Replacement**: Restores into a temporary staging database first, verifies it, and performs an atomic swap (`os.replace`). If any step fails, the original database and sidecars remain completely untouched.
+The restore utility (`backend/scripts/db_ops.py`) enforces strict fail-closed safety checks and a transaction-safe replacement protocol:
+1. **Fail-Closed Service Manager Verification**: Evaluates systemd unit status via `systemctl show -p ActiveState -p SubState -p LoadState aps-backend`.
+   - **Positively Stopped**: Returns verified stopped only when `ActiveState == "inactive"` or `(ActiveState == "failed" and SubState in ("failed", "dead"))`.
+   - **Active / Transitioning**: Services in `active`, `activating`, `deactivating`, `reloading`, or `failed` with `auto-restart` are strictly blocked. Restore aborts immediately and cannot be overridden by maintenance flags.
+   - **Ambiguous / Non-Systemd**: In environments without systemd (local development, Docker containers, CI), or when status cannot be confirmed, restore fails closed unless `--confirmed-offline-maintenance` is explicitly provided.
+2. **Fail-Closed Supplementary SQLite Lock Detection**: Tests target database file for active SQLite locks via an immediate `BEGIN EXCLUSIVE` transaction. Any lock contention or unexpected SQLite/OS error aborts restore fail-closed. Legacy bypass options (`--skip-process-lock-check`) are completely eliminated.
+3. **Forensic Sidecar (-wal, -shm, -journal) Isolation**: Captures byte-exact snapshots of active sidecars before any database connections open. Archives forensic sidecar copies alongside the mandatory safety snapshot in `backups/`.
+4. **Pre-flight Integrity & Alembic Verification**: Validates SQLite integrity (`PRAGMA integrity_check`) and schema compatibility / supported Alembic revision (`20261027_0005`) on the backup file before modifying any targets.
+5. **Mandatory Point-in-Time Safety Snapshot**: Automatically creates a timestamped safety backup in `backups/` before any staging or replacement operations begin.
+6. **Isolated Staging Database Verification**: Restores backup contents into an isolated temporary staging file (`.tmp_restore_{timestamp}`) and verifies integrity and schema compatibility on the staged artifact prior to touching the active target.
+7. **Transaction-Safe Replacement & Automatic Rollback**:
+   - Stages active target database and sidecars to timestamped `.staged_old_{timestamp}` files.
+   - Atomically swaps staged database into active target location via atomic filesystem replace (`os.replace`).
+   - Cleans up staged old files and removes stale sidecars on successful replacement.
+   - **Failure-Safe Rollback**: If replacement or cleanup encounters any error, an automated rollback re-establishes the original database and sidecars from staged files.
+   - **Manual Recovery Assurance**: If unexpected catastrophic filesystem failures prevent automated rollback, original database remains safely preserved in `.staged_old_{timestamp}` alongside the mandatory safety snapshot in `backups/`.
 
 #### Production Restore Sequence (Linux / systemd)
 ```bash

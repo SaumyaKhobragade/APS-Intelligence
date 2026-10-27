@@ -1,6 +1,8 @@
 """SQLite Database Operations Utility: Backup, Restore & Verification.
 
 Uses Python's sqlite3 Online Backup API for point-in-time consistent backups.
+Hardened with schema validation, Alembic revision verification, active-process lock
+detection, staging database pre-verification, and atomic replacement.
 """
 
 from __future__ import annotations
@@ -8,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -28,6 +31,20 @@ except Exception:
     DEFAULT_DB_PATH = BACKEND_DIR / "data" / "aps_intelligence.db"
 
 DEFAULT_BACKUP_DIR = BACKEND_DIR / "data" / "backups"
+
+# Schema validation constants
+REQUIRED_TABLES = {
+    "alembic_version",
+    "dataset_metadata",
+    "model_training_runs",
+    "experiment_runs",
+    "model_promotions",
+    "decision_policies",
+    "predictions",
+    "preprocessing_runs",
+}
+
+SUPPORTED_ALEMBIC_REVISIONS = {"20261027_0005"}
 
 
 def calculate_sha256(file_path: Path) -> str:
@@ -58,9 +75,58 @@ def verify_sqlite_integrity(db_path: Path) -> tuple[bool, str]:
         return False, str(e)
 
 
+def verify_schema_and_alembic(db_path: Path) -> tuple[bool, str]:
+    """Verify that database contains all required application tables and supported Alembic revision."""
+    if not db_path.exists():
+        return False, f"File does not exist: {db_path}"
+    try:
+        conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        tables = {row[0] for row in cursor.fetchall()}
+        missing = REQUIRED_TABLES - tables
+        if missing:
+            cursor.close()
+            conn.close()
+            return False, f"Missing required application tables: {sorted(missing)}"
+
+        cursor.execute("SELECT version_num FROM alembic_version")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        if not rows:
+            return False, "Alembic version table is empty; unmigrated database."
+        rev = rows[0][0]
+        if rev not in SUPPORTED_ALEMBIC_REVISIONS:
+            return False, f"Incompatible Alembic revision '{rev}'. Expected one of: {sorted(SUPPORTED_ALEMBIC_REVISIONS)}"
+        return True, f"Schema compatible (Alembic revision: {rev})"
+    except Exception as e:
+        return False, f"Schema check failed: {e}"
+
+
+def is_database_locked(db_path: Path) -> bool:
+    """Check if target SQLite database is active and locked by another running process."""
+    if not db_path.exists():
+        return False
+    try:
+        conn = sqlite3.connect(db_path.as_posix(), timeout=0.0)
+        cursor = conn.cursor()
+        cursor.execute("BEGIN EXCLUSIVE")
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return False
+    except sqlite3.OperationalError:
+        return True
+    except Exception:
+        return False
+
+
 def get_table_counts(db_path: Path) -> dict[str, int]:
     """Query row counts for all user tables in target database."""
     counts: dict[str, int] = {}
+    if not db_path.exists():
+        return counts
     conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -87,7 +153,7 @@ def backup_database(
     filename = custom_name or f"aps_intelligence_backup_{timestamp}.db"
     dest_path = backup_dir / filename
 
-    print(f"[*] Starting online backup...")
+    print("[*] Starting online backup...")
     print(f"    Source: {source_db}")
     print(f"    Destination: {dest_path}")
 
@@ -110,7 +176,7 @@ def backup_database(
     size_bytes = dest_path.stat().st_size
     sha256 = calculate_sha256(dest_path)
 
-    print(f"[+] Backup completed successfully.")
+    print("[+] Backup completed successfully.")
     print(f"    Size: {size_bytes:,} bytes")
     print(f"    SHA-256: {sha256}")
     print(f"    Integrity Check: {msg}")
@@ -120,54 +186,96 @@ def backup_database(
 def restore_database(
     backup_file: Path,
     target_db: Path = DEFAULT_DB_PATH,
-    force: bool = False,
+    skip_process_lock_check: bool = False,
 ) -> None:
-    """Safely restore a SQLite database from a verified backup."""
+    """Safely restore a SQLite database from a verified backup.
+    
+    Guarantees:
+    - Pre-flight integrity and schema compatibility verification on the backup file.
+    - Active process lock detection to refuse restoring over a running database.
+    - Mandatory safety snapshot before touching an existing target database.
+    - Staging restore into a temporary database followed by verification.
+    - Atomic replacement so target is never partially overwritten on failure.
+    """
     if not backup_file.exists():
         raise FileNotFoundError(f"Backup file not found: {backup_file}")
 
-    print(f"[*] Pre-flight integrity check on backup file: {backup_file}")
+    print(f"[*] Pre-flight check on backup file: {backup_file}")
     is_valid, msg = verify_sqlite_integrity(backup_file)
     if not is_valid:
-        raise ValueError(f"Backup file failed integrity check: {msg}")
+        raise ValueError(f"Backup file failed SQLite integrity check: {msg}")
 
-    print(f"[+] Backup file integrity verified: {msg}")
+    is_schema_valid, schema_msg = verify_schema_and_alembic(backup_file)
+    if not is_schema_valid:
+        raise ValueError(f"Backup file failed schema/migration check: {schema_msg}")
 
-    # If target database exists, take safety backup before overwriting unless forced
-    if target_db.exists() and not force:
+    print(f"[+] Backup file SQLite integrity: {msg}")
+    print(f"[+] Backup file schema check: {schema_msg}")
+
+    # Check whether target database is locked by active process
+    if target_db.exists() and not skip_process_lock_check:
+        if is_database_locked(target_db):
+            raise RuntimeError(
+                f"Target database '{target_db}' is locked by a running process. "
+                "Shut down the active backend service (e.g. 'sudo systemctl stop aps-backend') before restoring."
+            )
+
+    # Mandatory safety snapshot if target database already exists
+    if target_db.exists():
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        safety_path = target_db.parent / "backups" / f"pre_restore_safety_{timestamp}.db"
-        safety_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[*] Existing target found. Creating safety snapshot at {safety_path}...")
-        backup_database(source_db=target_db, backup_dir=safety_path.parent, custom_name=safety_path.name)
+        safety_dir = target_db.parent / "backups"
+        safety_dir.mkdir(parents=True, exist_ok=True)
+        safety_name = f"safety_pre_restore_{target_db.stem}_{timestamp}.db"
+        print(f"[*] Target database exists. Creating mandatory safety snapshot at: {safety_dir / safety_name}")
+        backup_database(source_db=target_db, backup_dir=safety_dir, custom_name=safety_name)
 
-    print(f"[*] Restoring from {backup_file} to {target_db}...")
     target_db.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    temp_target = target_db.with_name(f"{target_db.name}.tmp_restore_{timestamp}")
 
-    src_conn = sqlite3.connect(f"file:{backup_file.as_posix()}?mode=ro", uri=True)
-    dest_conn = sqlite3.connect(target_db.as_posix())
-
+    print(f"[*] Restoring into temporary staging database: {temp_target}")
     try:
-        with dest_conn:
-            src_conn.backup(dest_conn)
-    finally:
-        dest_conn.close()
-        src_conn.close()
+        src_conn = sqlite3.connect(f"file:{backup_file.as_posix()}?mode=ro", uri=True)
+        dest_conn = sqlite3.connect(temp_target.as_posix())
+        try:
+            with dest_conn:
+                src_conn.backup(dest_conn)
+        finally:
+            dest_conn.close()
+            src_conn.close()
 
-    # Post-restore integrity verification
-    is_valid, msg = verify_sqlite_integrity(target_db)
-    if not is_valid:
-        raise RuntimeError(f"Restored database failed integrity check: {msg}")
+        # Verify staged database before replacing active target
+        staged_valid, staged_msg = verify_sqlite_integrity(temp_target)
+        if not staged_valid:
+            raise RuntimeError(f"Staged restore database failed integrity check: {staged_msg}")
 
-    table_counts = get_table_counts(target_db)
-    print(f"[+] Restore completed successfully.")
+        staged_schema_valid, staged_schema_msg = verify_schema_and_alembic(temp_target)
+        if not staged_schema_valid:
+            raise RuntimeError(f"Staged restore database failed schema check: {staged_schema_msg}")
+
+        # Atomic replacement of target database
+        print(f"[*] Staging verified. Atomically replacing target database: {target_db}")
+        os.replace(temp_target, target_db)
+    except Exception:
+        if temp_target.exists():
+            temp_target.unlink(missing_ok=True)
+        raise
+
+    source_counts = get_table_counts(backup_file)
+    target_counts = get_table_counts(target_db)
+
+    print("[+] Restore completed successfully.")
     print(f"    Target: {target_db}")
     print(f"    Size: {target_db.stat().st_size:,} bytes")
     print(f"    SHA-256: {calculate_sha256(target_db)}")
-    print(f"    Integrity Check: {msg}")
-    print(f"    Table Counts:")
-    for tbl, count in table_counts.items():
-        print(f"      - {tbl}: {count} rows")
+    print(f"    Integrity Check: {staged_msg}")
+    print(f"    Schema & Migration: {staged_schema_msg}")
+    print("    Row Count Comparison:")
+    for tbl in sorted(set(source_counts.keys()) | set(target_counts.keys())):
+        src_c = source_counts.get(tbl, 0)
+        dst_c = target_counts.get(tbl, 0)
+        status = "MATCH" if src_c == dst_c else "MISMATCH"
+        print(f"      - {tbl}: backup={src_c}, restored={dst_c} [{status}]")
 
 
 def main() -> None:
@@ -184,7 +292,11 @@ def main() -> None:
     restore_parser = subparsers.add_parser("restore", help="Restore database from a backup file")
     restore_parser.add_argument("--backup-file", type=Path, required=True, help="Path to backup file")
     restore_parser.add_argument("--target", type=Path, default=DEFAULT_DB_PATH, help="Target SQLite database path")
-    restore_parser.add_argument("--force", action="store_true", help="Skip pre-restore safety snapshot")
+    restore_parser.add_argument(
+        "--skip-process-lock-check",
+        action="store_true",
+        help="Skip active process lock check only during verified controlled maintenance shutdown.",
+    )
 
     # Verify subcommand
     verify_parser = subparsers.add_parser("verify", help="Verify integrity and inspect database or backup file")
@@ -195,12 +307,18 @@ def main() -> None:
     if args.command == "backup":
         backup_database(source_db=args.source, backup_dir=args.dest_dir, custom_name=args.name)
     elif args.command == "restore":
-        restore_database(backup_file=args.backup_file, target_db=args.target, force=args.force)
+        restore_database(
+            backup_file=args.backup_file,
+            target_db=args.target,
+            skip_process_lock_check=args.skip_process_lock_check,
+        )
     elif args.command == "verify":
         is_valid, msg = verify_sqlite_integrity(args.path)
         print(f"File: {args.path}")
         print(f"Integrity Check: {msg}")
-        if is_valid:
+        is_schema_valid, schema_msg = verify_schema_and_alembic(args.path)
+        print(f"Schema & Migration Check: {schema_msg}")
+        if is_valid and is_schema_valid:
             print(f"SHA-256: {calculate_sha256(args.path)}")
             counts = get_table_counts(args.path)
             print("Table Counts:")

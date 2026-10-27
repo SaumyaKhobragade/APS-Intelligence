@@ -14,6 +14,16 @@ except ImportError:  # pydantic-settings 2.5.x has no NoDecode marker.
         """Compatibility marker; newer pydantic-settings provides this class."""
 
 
+# Documented base directory for relative path resolution (the backend root directory)
+BACKEND_BASE_DIR: Path = Path(__file__).resolve().parents[2]
+
+
+def is_path_absolute(path_str: str) -> bool:
+    """Return True if path string represents an absolute path on POSIX or Windows."""
+    p = Path(path_str)
+    return p.is_absolute() or path_str.startswith("/") or path_str.startswith("\\")
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the API process.
 
@@ -29,6 +39,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    app_base_dir: Path = BACKEND_BASE_DIR
     app_name: str = "APS Intelligence API"
     app_version: str = "0.1.0"
     environment: str = "development"
@@ -86,34 +97,32 @@ class Settings(BaseSettings):
                 if origin.strip() == "*":
                     raise ValueError("Wildcard '*' CORS origin is strictly forbidden in production mode.")
 
-        backend_dir = Path(__file__).resolve().parents[2]
-        if not self.persistent_storage_dir.is_absolute() and not self.persistent_storage_dir.exists():
-            candidate = backend_dir / self.persistent_storage_dir
-            if candidate.exists():
-                self.persistent_storage_dir = candidate
+        base_dir = self.app_base_dir.resolve()
 
-        if not self.dataset_storage_dir.is_absolute() and not self.dataset_storage_dir.exists():
-            candidate = backend_dir / self.dataset_storage_dir
-            if candidate.exists():
-                self.dataset_storage_dir = candidate
+        # Deterministic resolution of storage paths against documented base_dir
+        if not self.persistent_storage_dir.is_absolute():
+            self.persistent_storage_dir = (base_dir / self.persistent_storage_dir).resolve()
 
-        if not self.model_artifact_dir.is_absolute() and not self.model_artifact_dir.exists():
-            candidate = backend_dir / self.model_artifact_dir
-            if candidate.exists():
-                self.model_artifact_dir = candidate
+        if not self.dataset_storage_dir.is_absolute():
+            self.dataset_storage_dir = (base_dir / self.dataset_storage_dir).resolve()
 
-        if not self.report_storage_dir.is_absolute() and not self.report_storage_dir.exists():
-            candidate = backend_dir / self.report_storage_dir
-            if candidate.exists():
-                self.report_storage_dir = candidate
+        if not self.model_artifact_dir.is_absolute():
+            self.model_artifact_dir = (base_dir / self.model_artifact_dir).resolve()
 
+        if not self.report_storage_dir.is_absolute():
+            self.report_storage_dir = (base_dir / self.report_storage_dir).resolve()
+
+        # Deterministic resolution of SQLite database URL
         if self.database_url.startswith("sqlite:///"):
-            db_rel = self.database_url[len("sqlite:///"):]
-            rel_path = Path(db_rel)
-            if not rel_path.is_absolute() and not rel_path.exists():
-                candidate = (backend_dir / rel_path).resolve()
-                if candidate.exists():
-                    self.database_url = f"sqlite:///{candidate.as_posix()}"
+            db_path_raw = self.database_url[len("sqlite:///"):]
+            if db_path_raw != ":memory:" and not db_path_raw.startswith("file:"):
+                query = ""
+                if "?" in db_path_raw:
+                    db_path_raw, query = db_path_raw.split("?", 1)
+                    query = f"?{query}"
+                if not is_path_absolute(db_path_raw):
+                    resolved_p = (base_dir / Path(db_path_raw)).resolve()
+                    self.database_url = f"sqlite:///{resolved_p.as_posix()}{query}"
 
         return self
 

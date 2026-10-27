@@ -1,6 +1,13 @@
 // =============================================================================
 // APS Intelligence - Frontend PM2 Process Manager Configuration
 // =============================================================================
+// Architecture Note:
+//   - Browser-facing requests use same-origin relative `/api/v1` (embedded at build time).
+//   - Nginx reverse-proxies `/api/` traffic to FastAPI on 127.0.0.1:8000.
+//   - Browser clients never connect to 127.0.0.1 directly.
+//   - INTERNAL_API_URL provides runtime loopback resolution for any Node.js SSR calls.
+//   - Never place secrets in NEXT_PUBLIC_* variables.
+//
 // Installation & Startup:
 //   1. Build Next.js: npm run build (inside /opt/aps-intelligence/frontend)
 //   2. Start with PM2: pm2 start ecosystem.config.cjs
@@ -22,7 +29,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
-        NEXT_PUBLIC_API_URL: 'http://127.0.0.1:8000',
+        // Runtime loopback URL for server-side Next.js fetch requests only:
+        INTERNAL_API_URL: 'http://127.0.0.1:8000/api/v1',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       error_file: '/var/log/pm2/aps-frontend-error.log',

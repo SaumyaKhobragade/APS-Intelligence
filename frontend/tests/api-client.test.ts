@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeApiBaseUrl } from "@/lib/api";
+import { apiUrl, normalizeApiBaseUrl, resolveDefaultApiBaseUrl } from "@/lib/api";
 import { apiDownload, apiFetch } from "@/services/api-client";
 
 function response(body: unknown, init: ResponseInit = {}): Response {
@@ -26,6 +26,23 @@ describe("shared API boundary", () => {
     expect(normalizeApiBaseUrl(" http://localhost:8000/ ")).toBe("http://localhost:8000/api/v1");
     expect(normalizeApiBaseUrl("http://localhost:8000/api/v1/")).toBe("http://localhost:8000/api/v1");
     expect(normalizeApiBaseUrl("")).toBe("http://localhost:8000/api/v1");
+  });
+
+  it("resolves default API base URL based on environment and aliases", () => {
+    // Production default: same-origin relative /api/v1
+    expect(resolveDefaultApiBaseUrl({ NODE_ENV: "production" })).toBe("/api/v1");
+    // Development default: localhost FastAPI
+    expect(resolveDefaultApiBaseUrl({ NODE_ENV: "development" })).toBe("http://localhost:8000/api/v1");
+    // Explicit NEXT_PUBLIC_API_URL alias override
+    expect(resolveDefaultApiBaseUrl({ NEXT_PUBLIC_API_URL: "https://aps.example.com" })).toBe("https://aps.example.com/api/v1");
+    // Explicit NEXT_PUBLIC_API_BASE_URL override
+    expect(resolveDefaultApiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "/api" })).toBe("/api/v1");
+  });
+
+  it("constructs correct apiUrl with relative and absolute bases", () => {
+    expect(apiUrl("/health", "/api/v1")).toBe("/api/v1/health");
+    expect(apiUrl("predictions", "/api/v1")).toBe("/api/v1/predictions");
+    expect(apiUrl("/analytics/dashboard", "https://api.example.com/api/v1")).toBe("https://api.example.com/api/v1/analytics/dashboard");
   });
 
   it("parses successful JSON and adds JSON request headers", async () => {

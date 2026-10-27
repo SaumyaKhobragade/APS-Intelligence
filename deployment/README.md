@@ -31,8 +31,9 @@ The production deployment runs on a single AWS EC2 instance (recommended: `t3.la
 ### Key Design Tenets
 1. **Single Uvicorn Worker**: FastAPI runs with `--workers 1` to ensure completely deterministic, conflict-free SQLite concurrency without lock contention.
 2. **EBS-Backed Persistence**: SQLite database and ML model artifacts reside on dedicated EBS-backed storage.
-3. **Defense-in-Depth CORS**: In production, CORS strictly forbids wildcard `*` origins and requires explicit allowed domains.
-4. **Preserved ML Evidence**: Phase 9 candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic calibration) and Phase 10 official-test evaluation evidence remain strictly read-only.
+3. **Same-Origin API Strategy**: In production, the browser communicates through same-origin relative `/api/v1` routes proxied by Nginx. The browser never accesses `127.0.0.1` directly.
+4. **Defense-in-Depth CORS**: In production, CORS strictly forbids wildcard `*` origins and requires explicit allowed domains.
+5. **Preserved ML Evidence**: Phase 9 candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic calibration) and Phase 10 official-test evaluation evidence remain strictly read-only.
 
 ---
 
@@ -53,8 +54,7 @@ BACKEND_PORT=8000
 # Must specify the exact public scheme and domain(s)
 ALLOWED_CORS_ORIGINS=["https://aps.yourdomain.com", "http://127.0.0.1:3000"]
 
-# Persistent Storage & Database
-# Point to persistent EBS mount path
+# Persistent Storage & Database (Absolute paths to EBS mount)
 PERSISTENT_STORAGE_DIR="/var/data/aps-intelligence/data"
 DATABASE_URL="sqlite:////var/data/aps-intelligence/data/aps_intelligence.db"
 DATASET_STORAGE_DIR="/var/data/aps-intelligence/datasets"
@@ -75,11 +75,19 @@ LOG_LEVEL="INFO"
 ### 2.2 Frontend Environment Configuration (`/opt/aps-intelligence/frontend/.env.production`)
 
 ```ini
+# Runtime variables (consumed by PM2 / Node.js process)
 NODE_ENV="production"
 PORT=3000
-# Internal reverse proxy URL or public relative path
-NEXT_PUBLIC_API_URL="https://aps.yourdomain.com"
+INTERNAL_API_URL="http://127.0.0.1:8000/api/v1"
+
+# Build-time variables (inlined into client JavaScript bundles during `npm run build`)
+# By default, in production (NODE_ENV=production), the client uses same-origin relative `/api/v1`.
+# Leave NEXT_PUBLIC_API_BASE_URL unset or set to `/api/v1` for standard same-origin routing.
+NEXT_PUBLIC_API_BASE_URL="/api/v1"
 ```
+
+> [!WARNING]
+> **Build-time vs. Runtime Distinction**: `NEXT_PUBLIC_*` variables are embedded into client bundles at build time. Modifying them in `.env.production` at runtime without running `npm run build` will have NO effect. Never store secret credentials in `NEXT_PUBLIC_*` variables.
 
 ---
 
@@ -104,24 +112,39 @@ Before executing the production deployment, verify all prerequisites:
   - [ ] Repository cloned to `/opt/aps-intelligence`.
   - [ ] Verified SQLite database (`aps_intelligence.db`) copied to persistent EBS volume.
   - [ ] Trained model artifacts and Phase 10 test evaluations in place under `artifacts/` and `datasets/`.
-  - [ ] Alembic schema migrations up to date (`alembic upgrade head`).
 
 ---
 
-## 4. Step-by-Step Production Process Startup
+## 4. Step-by-Step Production Process Startup Sequence
 
-### 4.1 System & Directory Preparation
+### 4.1 Step 1: Mount EBS Storage & Prepare Directories
 ```bash
-# 1. Create system user and directory structure
-sudo mkdir -p /opt/aps-intelligence /var/data/aps-intelligence/data/backups
-sudo chown -R ubuntu:ubuntu /opt/aps-intelligence /var/data/aps-intelligence
+# 1. Format and mount persistent EBS volume (if new volume)
+# Replace /dev/nvme1n1 with actual EBS device identifier:
+sudo mkdir -p /var/data/aps-intelligence
+sudo mount /dev/nvme1n1 /var/data/aps-intelligence
 
-# 2. Clone repository & checkout target branch
-git clone https://github.com/SaumyaKhobragade/APS-Intelligence.git /opt/aps-intelligence
-cd /opt/aps-intelligence
+# Add to /etc/fstab for persistence across reboots:
+# UUID=<VOLUME_UUID> /var/data/aps-intelligence ext4 defaults,nofail 0 2
+
+# 2. Create application user directories and permissions
+sudo mkdir -p /opt/aps-intelligence /var/data/aps-intelligence/data/backups /var/log/pm2
+sudo chown -R ubuntu:ubuntu /opt/aps-intelligence /var/data/aps-intelligence /var/log/pm2
 ```
 
-### 4.2 Backend Setup & Systemd Service
+### 4.2 Step 2: Clone Repository & Populate Data
+```bash
+# Clone repository & checkout target branch
+git clone https://github.com/SaumyaKhobragade/APS-Intelligence.git /opt/aps-intelligence
+cd /opt/aps-intelligence
+
+# Ensure active production database is copied to EBS mount:
+# /var/data/aps-intelligence/data/aps_intelligence.db
+# Ensure model artifacts exist in:
+# /var/data/aps-intelligence/artifacts/models/
+```
+
+### 4.3 Step 3: Backend Setup, Verification & Systemd Service
 ```bash
 cd /opt/aps-intelligence/backend
 
@@ -131,28 +154,30 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 2. Apply database migrations & verify integrity
-alembic upgrade head
+# 2. Verify database integrity and Alembic revision BEFORE starting service
 python scripts/db_ops.py verify --path /var/data/aps-intelligence/data/aps_intelligence.db
 
-# 3. Install systemd service
+# 3. Only if migrations are needed, apply head:
+# alembic upgrade head
+
+# 4. Install systemd service
 sudo cp /opt/aps-intelligence/deployment/systemd/aps-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aps-backend
 
-# 4. Check backend status & verify health
+# 5. Check backend status & verify health
 sudo systemctl status aps-backend
 curl http://127.0.0.1:8000/api/v1/health?verbose=true
 ```
 
-### 4.3 Frontend Setup & PM2 Process Manager
+### 4.4 Step 4: Frontend Setup, Build & PM2 Process Manager
 ```bash
 cd /opt/aps-intelligence/frontend
 
 # 1. Install production dependencies
 npm ci
 
-# 2. Build production Next.js bundle
+# 2. Build production Next.js bundle (embeds same-origin relative /api/v1)
 npm run build
 
 # 3. Start with PM2
@@ -164,21 +189,21 @@ sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
 curl -I http://127.0.0.1:3000/
 ```
 
-### 4.4 Nginx Reverse Proxy & SSL Setup
+### 4.5 Step 5: Nginx Reverse Proxy & SSL Setup
 ```bash
-# 1. Copy Nginx configuration template
-sudo cp /opt/aps-intelligence/deployment/nginx/aps-intelligence.conf.template /etc/nginx/sites-available/aps-intelligence.conf
+# 1. Safely render Nginx template without corrupting internal Nginx variables ($host, $request_uri, etc.)
+python3 /opt/aps-intelligence/deployment/scripts/render_nginx_conf.py \
+    --template /opt/aps-intelligence/deployment/nginx/aps-intelligence.conf.template \
+    --output /etc/nginx/sites-available/aps-intelligence.conf \
+    --domain aps.yourdomain.com
 
-# 2. Substitute domain and certificate placeholders in configuration
-sudo sed -i 's/${DOMAIN_NAME}/aps.yourdomain.com/g' /etc/nginx/sites-available/aps-intelligence.conf
-
-# 3. Enable site
+# 2. Enable site
 sudo ln -sf /etc/nginx/sites-available/aps-intelligence.conf /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl reload nginx
 
-# 4. Provision SSL with Certbot
+# 3. Provision SSL certificate with Certbot
 sudo certbot --nginx -d aps.yourdomain.com
 ```
 
@@ -214,7 +239,7 @@ Use the provided `backend/scripts/db_ops.py` utility to create consistent online
 cd /opt/aps-intelligence/backend
 .venv/bin/python scripts/db_ops.py backup
 
-# Verify backup integrity
+# Verify backup integrity, schema compliance, and Alembic revision
 .venv/bin/python scripts/db_ops.py verify --path /var/data/aps-intelligence/data/backups/aps_intelligence_backup_YYYYMMDD_HHMMSS.db
 ```
 
@@ -224,15 +249,23 @@ Add the following job to `crontab -e` for daily automated backups at 02:00 UTC:
 0 2 * * * cd /opt/aps-intelligence/backend && /opt/aps-intelligence/backend/.venv/bin/python scripts/db_ops.py backup >> /var/log/aps-db-backup.log 2>&1
 ```
 
-### 5.5 Database Restoration
-In the event of database corruption or hardware rollback:
+### 5.5 Database Restoration Procedure
+The restore utility enforces mandatory safety checks:
+1. Validates SQLite integrity (`PRAGMA integrity_check`).
+2. Validates schema compatibility and supported Alembic revision (`20261027_0005`).
+3. Refuses to restore if the target is locked by a running backend process.
+4. Automatically takes a safety snapshot of the target before touching it.
+5. Restores into a temporary database first, verifies it, then performs an atomic swap.
+
 ```bash
 # 1. Stop backend service
 sudo systemctl stop aps-backend
 
-# 2. Restore from verified backup (automatically generates safety copy of corrupted state)
+# 2. Restore from verified backup
 cd /opt/aps-intelligence/backend
-.venv/bin/python scripts/db_ops.py restore --backup-file /var/data/aps-intelligence/data/backups/aps_intelligence_backup_YYYYMMDD_HHMMSS.db --target /var/data/aps-intelligence/data/aps_intelligence.db
+.venv/bin/python scripts/db_ops.py restore \
+    --backup-file /var/data/aps-intelligence/data/backups/aps_intelligence_backup_YYYYMMDD_HHMMSS.db \
+    --target /var/data/aps-intelligence/data/aps_intelligence.db
 
 # 3. Restart backend service & verify health
 sudo systemctl start aps-backend
@@ -269,10 +302,11 @@ If a critical issue occurs post-deployment, execute the following rollback steps
      sudo systemctl restart aps-backend
      ```
 4. **Database Rollback (if schema changed or data corrupted)**:
+   - Stop backend: `sudo systemctl stop aps-backend`
    - Identify latest pre-deployment backup in `/var/data/aps-intelligence/data/backups/`.
-   - Restore using `python scripts/db_ops.py restore --backup-file <BACKUP_PATH>`.
-   - Restart `aps-backend`.
+   - Restore using `.venv/bin/python scripts/db_ops.py restore --backup-file <BACKUP_PATH>`
+   - Restart: `sudo systemctl start aps-backend`
 5. **Post-Rollback Verification**:
    - Execute health check: `curl http://127.0.0.1:8000/api/v1/health?verbose=true`
    - Verify frontend loads: `curl -I http://127.0.0.1:3000/`
-   - Verify Phase 9 candidate and Phase 10 test evidence remain intact.
+   - Verify Phase 9 candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic) and Phase 10 test evidence remain intact.

@@ -11,6 +11,7 @@ import { ModelMetricsTable } from "@/components/models/model-metrics-table";
 import { ModelOverview } from "@/components/models/model-overview";
 import { OfficialTestEvidence } from "@/components/models/official-test-evidence";
 import { PrecisionRecallChart } from "@/components/models/precision-recall-chart";
+import { DeferredSection } from "@/components/ui/deferred-section";
 import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/button";
 import { fetchModelComparison } from "@/services/model-service";
@@ -29,19 +30,24 @@ export default function ModelComparisonPage() {
   const [officialTestLoading, setOfficialTestLoading] = React.useState(true);
 
   const load = React.useCallback(async (refresh = false) => {
-    if (refresh) setIsRefreshing(true); else setIsLoading(true);
+    if (refresh) setIsRefreshing(true);
+    else setIsLoading(true);
     setError(null);
     try {
       const result = await fetchModelComparison();
       setSnapshot(result);
-      setSelectedModelId((current) => current && result.models.some((model) => model.modelId === current) ? current : result.models[0]?.modelId);
+      setSelectedModelId((current) =>
+        current && result.models.some((model) => model.modelId === current) ? current : result.models[0]?.modelId,
+      );
       setOfficialTestLoading(true);
       setOfficialTestError(null);
       try {
         setOfficialTest(await fetchOfficialTestEvidence());
       } catch (officialError) {
         setOfficialTest(null);
-        setOfficialTestError(officialError instanceof Error ? officialError.message : "Official-test evidence could not be loaded.");
+        setOfficialTestError(
+          officialError instanceof Error ? officialError.message : "Official-test evidence could not be loaded.",
+        );
       } finally {
         setOfficialTestLoading(false);
       }
@@ -53,30 +59,153 @@ export default function ModelComparisonPage() {
     }
   }, []);
 
-  React.useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
-  const selectedModel = snapshot?.models.find((model) => model.modelId === selectedModelId) ?? snapshot?.models[0];
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const handleSelectModel = React.useCallback((id: string) => {
+    setSelectedModelId(id);
+  }, []);
+
+  const selectedModel = React.useMemo(() => {
+    return snapshot?.models.find((model) => model.modelId === selectedModelId) ?? snapshot?.models[0];
+  }, [snapshot?.models, selectedModelId]);
 
   return (
-    <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Loading persisted model analytics"}>
+    <AppShell
+      onRefresh={() => void load(true)}
+      isRefreshing={isRefreshing}
+      lastUpdated={snapshot?.lastUpdated ?? "Loading persisted model analytics"}
+    >
       <div className="mx-auto max-w-[1600px]">
-         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><nav aria-label="Model Comparison sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted"><a className="hover:text-signal" href="#model-overview">01 / Overview</a><a className="hover:text-signal" href="#metrics-table">02 / Metrics</a><a className="hover:text-signal" href="#precision-recall">03 / Curves</a><a className="hover:text-signal" href="#confusion-matrix">04 / Errors</a><a className="hover:text-signal" href="#feature-importance">05 / Features</a><a className="hover:text-signal" href="#model-details">06 / Details</a><a className="hover:text-signal" href="#business-impact">07 / Cost</a><a className="hover:text-signal" href="#official-test">08 / Official test</a></nav><Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}><RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh comparison</Button></div></section>
-        {isLoading ? <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">Loading persisted validation analytics…</p> : null}
-        {error ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><ErrorState title="Model comparison unavailable" description={error} onRetry={() => void load()} /></div> : null}
-        {!isLoading && !error && (!snapshot || !selectedModel) ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><EmptyState title="No compatible validation results" description="The backend returned no persisted validation comparison rows. Official-test and production results are not substituted." /></div> : null}
-        {!isLoading && !error && snapshot && selectedModel ? <>
-           <section className="flex flex-col gap-3 border-b border-line bg-surface px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10"><p className="text-sm text-ink">Evaluation scope / <span className="font-medium">{snapshot.evaluationSplit}</span></p><p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Validation metrics remain separate from official-test and production scopes</p></section>
-          <ModelOverview models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={setSelectedModelId} />
-          <ModelMetricsTable models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={setSelectedModelId} />
-          <PrecisionRecallChart models={snapshot.models} />
-          <ConfusionMatrixComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={setSelectedModelId} />
-          <FeatureImportanceChart models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={setSelectedModelId} />
-          <ModelDetailsPanel model={selectedModel} />
-           <BusinessImpactComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={setSelectedModelId} />
-           {officialTestLoading ? <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">Loading persisted official-test evidence…</p> : null}
-           {officialTestError ? <div className="mx-5 my-8 sm:mx-8 lg:mx-10"><ErrorState title="Official-test evidence unavailable" description={officialTestError} onRetry={() => void load()} /></div> : null}
-           {officialTest ? <OfficialTestEvidence evidence={officialTest} /> : null}
-          <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10"><div><p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Model comparison / end of view</p><p className="mt-2 text-sm text-ink">Rows retain model references, dataset fingerprints and validation scope.</p></div><Button variant="outline" asChild><a href="#model-overview">Back to overview <ArrowDown aria-hidden="true" className="size-3.5 rotate-180" /></a></Button></section>
-        </> : null}
+        <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <nav aria-label="Model Comparison sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              <a className="hover:text-signal" href="#model-overview">01 / Overview</a>
+              <a className="hover:text-signal" href="#metrics-table">02 / Metrics</a>
+              <a className="hover:text-signal" href="#precision-recall">03 / Curves</a>
+              <a className="hover:text-signal" href="#confusion-matrix">04 / Errors</a>
+              <a className="hover:text-signal" href="#feature-importance">05 / Features</a>
+              <a className="hover:text-signal" href="#model-details">06 / Details</a>
+              <a className="hover:text-signal" href="#business-impact">07 / Cost</a>
+              <a className="hover:text-signal" href="#official-test">08 / Official test</a>
+            </nav>
+            <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
+              <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh comparison
+            </Button>
+          </div>
+        </section>
+
+        {isLoading ? (
+          <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">
+            Loading persisted validation analytics…
+          </p>
+        ) : null}
+
+        {error ? (
+          <div className="mx-5 my-8 sm:mx-8 lg:mx-10">
+            <ErrorState title="Model comparison unavailable" description={error} onRetry={() => void load()} />
+          </div>
+        ) : null}
+
+        {!isLoading && !error && (!snapshot || !selectedModel) ? (
+          <div className="mx-5 my-8 sm:mx-8 lg:mx-10">
+            <EmptyState
+              title="No compatible validation results"
+              description="The backend returned no persisted validation comparison rows. Official-test and production results are not substituted."
+            />
+          </div>
+        ) : null}
+
+        {!isLoading && !error && snapshot && selectedModel ? (
+          <>
+            <section className="flex flex-col gap-3 border-b border-line bg-surface px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
+              <p className="text-sm text-ink">
+                Evaluation scope / <span className="font-medium">{snapshot.evaluationSplit}</span>
+              </p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                Validation metrics remain separate from official-test and production scopes
+              </p>
+            </section>
+
+            {/* Above the fold: Overview and Metrics Table render immediately */}
+            <ModelOverview
+              models={snapshot.models}
+              selectedModelId={selectedModel.modelId}
+              onSelectModel={handleSelectModel}
+            />
+
+            <ModelMetricsTable
+              models={snapshot.models}
+              selectedModelId={selectedModel.modelId}
+              onSelectModel={handleSelectModel}
+            />
+
+            {/* Below the fold: Deferred mounting via IntersectionObserver / idle */}
+            <DeferredSection id="precision-recall" placeholderTitle="precision-recall and ROC curves">
+              <PrecisionRecallChart models={snapshot.models} />
+            </DeferredSection>
+
+            <DeferredSection id="confusion-matrix" placeholderTitle="confusion matrix">
+              <ConfusionMatrixComparison
+                models={snapshot.models}
+                selectedModelId={selectedModel.modelId}
+                onSelectModel={handleSelectModel}
+              />
+            </DeferredSection>
+
+            <DeferredSection id="feature-importance" placeholderTitle="feature importance">
+              <FeatureImportanceChart
+                models={snapshot.models}
+                selectedModelId={selectedModel.modelId}
+                onSelectModel={handleSelectModel}
+              />
+            </DeferredSection>
+
+            <DeferredSection id="model-details" placeholderTitle="model details">
+              <ModelDetailsPanel model={selectedModel} />
+            </DeferredSection>
+
+            <DeferredSection id="business-impact" placeholderTitle="business impact">
+              <BusinessImpactComparison
+                models={snapshot.models}
+                selectedModelId={selectedModel.modelId}
+                onSelectModel={handleSelectModel}
+              />
+            </DeferredSection>
+
+            {officialTestLoading ? (
+              <p className="mx-5 my-8 border border-line bg-surface px-6 py-10 text-center text-sm text-muted sm:mx-8 lg:mx-10" role="status">
+                Loading persisted official-test evidence…
+              </p>
+            ) : null}
+
+            {officialTestError ? (
+              <div className="mx-5 my-8 sm:mx-8 lg:mx-10">
+                <ErrorState title="Official-test evidence unavailable" description={officialTestError} onRetry={() => void load()} />
+              </div>
+            ) : null}
+
+            {officialTest ? (
+              <DeferredSection id="official-test" placeholderTitle="official test evidence">
+                <OfficialTestEvidence evidence={officialTest} />
+              </DeferredSection>
+            ) : null}
+
+            <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Model comparison / end of view</p>
+                <p className="mt-2 text-sm text-ink">Rows retain model references, dataset fingerprints and validation scope.</p>
+              </div>
+              <Button variant="outline" asChild>
+                <a href="#model-overview">
+                  Back to overview <ArrowDown aria-hidden="true" className="size-3.5 rotate-180" />
+                </a>
+              </Button>
+            </section>
+          </>
+        ) : null}
       </div>
     </AppShell>
   );

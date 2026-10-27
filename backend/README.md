@@ -887,3 +887,95 @@ production datasets, trained model files or network services.
 Phase 3 and Phase 4 tests use small synthetic imbalanced datasets. The complete
 test suite does not train all four models on the full APS dataset; the APS
 results above come from separate controlled smoke scripts.
+
+
+## Database Migrations, SQLite Runtime & Operational Procedures
+
+### Database Path Resolution
+
+`Settings` in `app/core/config.py` defaults `DATABASE_URL` to `sqlite:///./data/aps_intelligence.db`
+and loads environment variables from `.env`. SQLite path resolution is relative to the process
+working directory:
+
+- **Standard launch**: Working directory must be `backend/`. This resolves `./data/aps_intelligence.db`
+  to `backend/data/aps_intelligence.db` where the primary database and dataset profiles reside.
+- **Repository-root execution**: If invoking tools from the repository root, either change directory to
+  `backend/` first (`cd backend`) or provide an absolute path in `DATABASE_URL` (e.g.
+  `DATABASE_URL=sqlite:///E:/Projects/APS-Intelligence/backend/data/aps_intelligence.db`).
+- **Separate databases**: `backend/data/phase9_validation.db` is an isolated evaluation store for the
+  frozen Phase 9 candidate. It is never merged or replaced with the primary `aps_intelligence.db`.
+
+### Inspecting Alembic Revision
+
+To inspect the current database migration revision against the repository migration graph:
+
+```powershell
+cd backend
+.\.venv313\Scripts\python.exe -m alembic current
+.\.venv313\Scripts\python.exe -m alembic heads
+```
+
+Expected head revision: `20261027_0005 (head)`.
+
+### Applying Pending Migrations
+
+Never execute `alembic stamp head` blindly. The migrations in `alembic/versions/` are idempotent
+and verify column existence via table inspection before altering tables. To apply pending migrations:
+
+```powershell
+cd backend
+.\.venv313\Scripts\python.exe -m alembic upgrade head
+```
+
+### Point-in-Time Database Backup & Verification
+
+Always create a consistent point-in-time backup before running schema upgrades:
+
+```powershell
+cd backend
+.\.venv313\Scripts\python.exe -c "
+import sqlite3, datetime, hashlib
+from pathlib import Path
+
+ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+backup_path = Path('data/backups') / f'aps_intelligence_{ts}.db'
+backup_path.parent.mkdir(parents=True, exist_ok=True)
+
+src = sqlite3.connect('data/aps_intelligence.db')
+dst = sqlite3.connect(str(backup_path))
+with dst:
+    src.backup(dst, pages=100)
+src.close()
+dst.close()
+
+chk = sqlite3.connect(str(backup_path)).cursor().execute('PRAGMA integrity_check;').fetchone()[0]
+sha = hashlib.sha256(backup_path.read_bytes()).hexdigest()
+print(f'Backup: {backup_path}, integrity: {chk}, sha256: {sha}')
+"
+```
+
+### Starting Backend with Python 3.13 (.venv313)
+
+```powershell
+cd backend
+.\.venv313\Scripts\uvicorn.exe app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Endpoint Verification
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/v1/health
+curl.exe -s http://127.0.0.1:8000/api/v1/analytics/dashboard
+curl.exe -s http://127.0.0.1:8000/api/v1/historical-evidence/overview
+curl.exe -s http://127.0.0.1:8000/api/v1/historical-evidence/official-test
+```
+
+### Operational Constraints & Known Boundaries
+
+1. **Lifespan Startup Policy**: The application lifespan verifies connectivity with `SELECT 1` but
+   does not auto-run Alembic migrations on startup. Schema upgrades must be run explicitly.
+2. **Inference Gating**: The Phase 9 candidate (`phase9-final-validation-candidate`) is frozen at
+   threshold `0.115` with isotonic calibration and labelled `Final validation candidate — not production approved`.
+   No model is promoted to production; `POST /api/v1/predictions` returns HTTP 400 when called without an
+   explicit model identifier because the production gate is intentionally closed.
+3. **SQLite Concurrency**: SQLite serializes write transactions; keep uvicorn worker count to 1 (`--workers 1`).

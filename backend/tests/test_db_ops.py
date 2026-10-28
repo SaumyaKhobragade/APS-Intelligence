@@ -369,22 +369,25 @@ def test_sqlite_sidecar_detection(tmp_path: Path) -> None:
     ("stdout", "returncode", "expected_active", "expected_msg_snippet"),
     [
         # Explicitly active
-        ("LoadState=loaded\nActiveState=active\nSubState=running\n", 0, True, "active (running)"),
+        ("LoadState=loaded\nActiveState=active\nSubState=running\n", 0, True, "active (running"),
+        # Active with unusual or masked LoadState (always True regardless of LoadState)
+        ("LoadState=masked\nActiveState=active\nSubState=running\n", 0, True, "active (running"),
+        ("LoadState=not-found\nActiveState=active\nSubState=running\n", 0, True, "active (running"),
         # Explicitly inactive
         ("LoadState=loaded\nActiveState=inactive\nSubState=dead\n", 0, False, "inactive (dead)"),
         ("LoadState=loaded\nActiveState=inactive\nSubState=inactive\n", 0, False, "inactive (inactive)"),
         # Failed but positively stopped
         ("LoadState=loaded\nActiveState=failed\nSubState=dead\n", 0, False, "failed/stopped (dead)"),
         ("LoadState=loaded\nActiveState=failed\nSubState=failed\n", 0, False, "failed/stopped (failed)"),
-        # Failed but restarting / ambiguous
-        ("LoadState=loaded\nActiveState=failed\nSubState=auto-restart\n", 0, None, "failed service state ambiguous or restarting"),
-        # Missing / unknown unit
+        # Failed but auto-restart (classified as active/unsafe: True)
+        ("LoadState=loaded\nActiveState=failed\nSubState=auto-restart\n", 0, True, "auto-restart"),
+        # Missing / unknown unit (inactive)
         ("LoadState=not-found\nActiveState=inactive\nSubState=dead\n", 0, None, "not found"),
         ("LoadState=masked\nActiveState=inactive\nSubState=dead\n", 0, None, "not found"),
         # Transitioning states
-        ("LoadState=loaded\nActiveState=activating\nSubState=start-pre\n", 0, None, "transitioning state: activating"),
-        ("LoadState=loaded\nActiveState=deactivating\nSubState=stop-sigterm\n", 0, None, "transitioning state: deactivating"),
-        ("LoadState=loaded\nActiveState=reloading\nSubState=reload\n", 0, None, "transitioning state: reloading"),
+        ("LoadState=loaded\nActiveState=activating\nSubState=start-pre\n", 0, "transitioning", "transitioning (activating"),
+        ("LoadState=loaded\nActiveState=deactivating\nSubState=stop-sigterm\n", 0, "transitioning", "transitioning (deactivating"),
+        ("LoadState=loaded\nActiveState=reloading\nSubState=reload\n", 0, "transitioning", "transitioning (reloading"),
         # Unrecognized / unknown
         ("LoadState=loaded\nActiveState=unknown\nSubState=other\n", 0, None, "unrecognized/ambiguous state"),
     ],
@@ -393,7 +396,7 @@ def test_check_systemd_service_status_property_classifications(
     monkeypatch,
     stdout: str,
     returncode: int,
-    expected_active: bool | None,
+    expected_active: bool | str | None,
     expected_msg_snippet: str,
 ) -> None:
     class MockProcess:
@@ -454,7 +457,7 @@ def test_restore_refuses_active_service_even_with_confirmation(tmp_path: Path) -
     backup_file = tmp_path / "backup.db"
     create_valid_aps_db(backup_file, sample_count=1)
 
-    with pytest.raises(RuntimeError, match="actively running.*sudo systemctl stop aps-backend"):
+    with pytest.raises(RuntimeError, match="actively running or transitioning.*sudo systemctl stop aps-backend"):
         restore_database(
             backup_file=backup_file,
             target_db=target_db,
@@ -469,13 +472,70 @@ def test_restore_refuses_transitioning_service_even_with_confirmation(tmp_path: 
     backup_file = tmp_path / "backup.db"
     create_valid_aps_db(backup_file, sample_count=1)
 
-    with pytest.raises(RuntimeError, match="in an active or transitioning state.*activating"):
+    with pytest.raises(RuntimeError, match="actively running or transitioning.*transitioning"):
         restore_database(
             backup_file=backup_file,
             target_db=target_db,
             confirmed_offline_maintenance=True,
-            service_status_checker=lambda s: (None, "transitioning state: activating (start-pre)"),
+            service_status_checker=lambda s: ("transitioning", "transitioning (activating: start-pre)"),
         )
+
+
+def test_restore_refuses_failed_auto_restart_even_with_confirmation(tmp_path: Path) -> None:
+    target_db = tmp_path / "target.db"
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    with pytest.raises(RuntimeError, match="actively running or transitioning.*failed \\(auto-restart"):
+        restore_database(
+            backup_file=backup_file,
+            target_db=target_db,
+            confirmed_offline_maintenance=True,
+            service_status_checker=lambda s: (True, "failed (auto-restart: service is restarting, LoadState=loaded)"),
+        )
+
+    # Invariants verification
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 6
+    assert wal_file.exists()
+    assert wal_file.read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
+    assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
+    assert len(list(target_db.parent.glob("*.tmp_restore_*"))) == 0
+
+
+def test_restore_refuses_masked_active_service_even_with_confirmation(tmp_path: Path, monkeypatch) -> None:
+    target_db = tmp_path / "target.db"
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    class MockMaskedActiveProcess:
+        stdout = "LoadState=masked\nActiveState=active\nSubState=running\n"
+        stderr = ""
+        returncode = 0
+
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/systemctl")
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockMaskedActiveProcess())
+
+    with pytest.raises(RuntimeError, match="actively running or transitioning.*active \\(running, LoadState=masked\\)"):
+        restore_database(
+            backup_file=backup_file,
+            target_db=target_db,
+            confirmed_offline_maintenance=True,
+        )
+
+    # Invariants verification
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 6
+    assert wal_file.exists()
+    assert wal_file.read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
 
 
 def test_is_database_locked_fail_closed_on_unexpected_errors(tmp_path: Path, monkeypatch) -> None:
@@ -675,7 +735,7 @@ def test_fault_injection_failure_during_atomic_replacement(tmp_path: Path, monke
     assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
 
 
-def test_fault_injection_failure_during_sidecar_cleanup(tmp_path: Path, monkeypatch) -> None:
+def test_fault_injection_failure_during_stale_sidecar_cleanup(tmp_path: Path, monkeypatch) -> None:
     target_db = tmp_path / "data" / "target.db"
     target_db.parent.mkdir(parents=True)
     create_valid_aps_db(target_db, sample_count=6)
@@ -685,16 +745,32 @@ def test_fault_injection_failure_during_sidecar_cleanup(tmp_path: Path, monkeypa
     backup_file = tmp_path / "backup.db"
     create_valid_aps_db(backup_file, sample_count=2)
 
-    # Fail during unlink of staged_old_sidecars
+    # Simulate a stale sidecar remaining or appearing right after target replacement
+    original_replace = shutil.os.replace
+
+    def mock_replace(src, dst):
+        res = original_replace(src, dst)
+        if str(dst) == str(target_db) and "tmp_restore" in str(src):
+            stale_wal = Path(f"{target_db.as_posix()}-wal")
+            stale_wal.write_bytes(b"STRAY_STALE_WAL_DATA")
+        return res
+
+    monkeypatch.setattr(shutil.os, "replace", mock_replace)
+
+    # Injected failure when unlinking stale sidecars at target path before commit
     original_unlink = Path.unlink
+
     def mock_unlink(self, *args, **kwargs):
-        if "staged_old" in str(self) and "-wal" in str(self):
-            raise OSError("Injected permission error unlinking staged sidecar")
+        if self.name == f"{target_db.name}-wal":
+            raise OSError("Injected permission error unlinking stale sidecar")
         return original_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", mock_unlink)
 
-    with pytest.raises(RuntimeError, match="Restore failed during sidecar and staging cleanup.*Rollback completed.*Original database remains active"):
+    with pytest.raises(
+        RuntimeError,
+        match="Restore failed during stale sidecar cleanup: .*Rollback completed: original database and sidecar files were restored. Original database remains active.",
+    ):
         restore_database(
             backup_file=backup_file,
             target_db=target_db,
@@ -702,10 +778,64 @@ def test_fault_injection_failure_during_sidecar_cleanup(tmp_path: Path, monkeypa
             service_status_checker=lambda s: (False, "inactive (dead)"),
         )
 
-    # Target DB and WAL must be rolled back to original data
+    # 1. Original target database exists
+    assert target_db.exists()
+    # 2. Original row counts preserved (6, NOT restored 2)
     assert get_table_counts(target_db)["dataset_metadata"] == 6
+    # 3. Restored database did NOT accidentally become active
+    assert get_table_counts(target_db)["dataset_metadata"] != 2
+    # 4. Original sidecars preserved
     assert wal_file.exists()
     assert wal_file.read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
+    # 5. Staged recovery files removed on rollback completion
+    assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
+    assert len(list(target_db.parent.glob("*.tmp_restore_*"))) == 0
+
+
+def test_fault_injection_failure_during_old_database_cleanup(tmp_path: Path, monkeypatch) -> None:
+    target_db = tmp_path / "data" / "target.db"
+    target_db.parent.mkdir(parents=True)
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    # Injected failure when unlinking staged_old_main during post-commit cleanup
+    original_unlink = Path.unlink
+
+    def mock_unlink(self, *args, **kwargs):
+        if "staged_old" in self.name and not any(sfx in self.name for sfx in ("-wal", "-shm", "-journal")):
+            raise OSError("Injected permission error unlinking staged_old database")
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", mock_unlink)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Database replacement committed successfully, but cleanup of old staged artifacts failed.*Target database '.*' is active and valid.*Staged recovery files remain for manual cleanup",
+    ):
+        restore_database(
+            backup_file=backup_file,
+            target_db=target_db,
+            confirmed_offline_maintenance=True,
+            service_status_checker=lambda s: (False, "inactive (dead)"),
+        )
+
+    # 1. Target database exists and is active
+    assert target_db.exists()
+    # 2. Restored database correctly became active (has 2 rows from backup, replacement was committed)
+    assert get_table_counts(target_db)["dataset_metadata"] == 2
+    # 3. Old staged database file is preserved on disk for manual cleanup with original 6 rows
+    staged_old_dbs = list(target_db.parent.glob("*.staged_old_*"))
+    main_staged = [p for p in staged_old_dbs if not any(sfx in p.name for sfx in ("-wal", "-shm", "-journal"))]
+    assert len(main_staged) == 1
+    assert get_table_counts(main_staged[0])["dataset_metadata"] == 6
+    # 4. Mandatory safety snapshot also preserved with original 6 rows
+    safety_snaps = list(target_db.parent.glob("backups/safety_pre_restore_*.db"))
+    assert len(safety_snaps) == 1
+    assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6
 
 
 def test_fault_injection_failure_during_rollback_recovery(tmp_path: Path, monkeypatch) -> None:
@@ -719,6 +849,7 @@ def test_fault_injection_failure_during_rollback_recovery(tmp_path: Path, monkey
     create_valid_aps_db(backup_file, sample_count=2)
 
     original_replace = shutil.os.replace
+
     def mock_replace_double_fail(src, dst):
         # 1. Fail replacement
         if str(dst) == str(target_db) and "tmp_restore" in str(src):
@@ -730,7 +861,10 @@ def test_fault_injection_failure_during_rollback_recovery(tmp_path: Path, monkey
 
     monkeypatch.setattr(shutil.os, "replace", mock_replace_double_fail)
 
-    with pytest.raises(RuntimeError, match="CRITICAL: Restore failed during target database replacement.*Automatic rollback failed.*Manual recovery is required"):
+    with pytest.raises(
+        RuntimeError,
+        match="CRITICAL: Restore failed during target database replacement.*Automatic rollback failed.*Original database is preserved at staged file.*Manual recovery is required",
+    ):
         restore_database(
             backup_file=backup_file,
             target_db=target_db,
@@ -738,13 +872,51 @@ def test_fault_injection_failure_during_rollback_recovery(tmp_path: Path, monkey
             service_status_checker=lambda s: (False, "inactive (dead)"),
         )
 
-    # Verify that staged_old file is preserved on disk with original 6 rows for manual recovery
+    # 1. Verify that staged_old file is preserved on disk with original 6 rows for manual recovery
     staged_old_dbs = list(target_db.parent.glob("*.staged_old_*"))
     main_staged = [p for p in staged_old_dbs if not any(sfx in p.name for sfx in ("-wal", "-shm", "-journal"))]
     assert len(main_staged) == 1
     assert get_table_counts(main_staged[0])["dataset_metadata"] == 6
 
-    # Verify safety snapshot also exists in backups directory with original 6 rows
+    # 2. Verify safety snapshot also exists in backups directory with original 6 rows
+    safety_snaps = list(target_db.parent.glob("backups/safety_pre_restore_*.db"))
+    assert len(safety_snaps) == 1
+    assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6
+
+    # 3. Verify target database was not corrupted with restored 2 rows
+    if target_db.exists():
+        assert get_table_counts(target_db).get("dataset_metadata") != 2
+
+
+def test_successful_restore_staged_artifacts_cleaned_after_commit(tmp_path: Path) -> None:
+    target_db = tmp_path / "data" / "target.db"
+    target_db.parent.mkdir(parents=True)
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    restore_database(
+        backup_file=backup_file,
+        target_db=target_db,
+        confirmed_offline_maintenance=True,
+        service_status_checker=lambda s: (False, "inactive (dead)"),
+    )
+
+    # 1. Target database exists and has new backup data (2 rows)
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 2
+
+    # 2. Stale sidecars removed
+    assert not wal_file.exists()
+
+    # 3. Old staged artifacts cleaned up
+    assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
+    assert len(list(target_db.parent.glob("*.tmp_restore_*"))) == 0
+
+    # 4. Mandatory safety snapshot preserved in backups directory with original 6 rows
     safety_snaps = list(target_db.parent.glob("backups/safety_pre_restore_*.db"))
     assert len(safety_snaps) == 1
     assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6

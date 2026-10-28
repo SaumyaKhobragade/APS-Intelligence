@@ -154,16 +154,16 @@ def get_sqlite_sidecars(db_path: Path) -> dict[str, Path]:
     return sidecars
 
 
-def check_systemd_service_status(service_name: str = "aps-backend") -> tuple[bool | None, str]:
+def check_systemd_service_status(service_name: str = "aps-backend") -> tuple[bool | str | None, str]:
     """Query systemd to check whether the specified service is currently active.
 
     Uses 'systemctl show' to inspect explicit unit properties (ActiveState, SubState, LoadState).
 
     Returns:
-        (True, status_str): Service is explicitly running (active).
+        (True, status_str): Service is explicitly running or auto-restarting (active/unsafe).
+        ("transitioning", status_str): Service is activating, deactivating, or reloading (unsafe).
         (False, status_str): Service is positively confirmed stopped (inactive or dead/failed).
-        (None, reason_str): Service state is ambiguous, transitioning, unknown unit,
-                            or systemd is not present/functioning.
+        (None, reason_str): Service state is unknown, missing unit, non-systemd, or execution failed.
     """
     systemctl_bin = shutil.which("systemctl")
     if not systemctl_bin:
@@ -191,29 +191,33 @@ def check_systemd_service_status(service_name: str = "aps-backend") -> tuple[boo
         active_state = props.get("ActiveState", "")
         sub_state = props.get("SubState", "")
 
-        # Missing unit or unknown service
+        # 1. Explicitly active service (ActiveState=active: always return True regardless of LoadState/SubState)
+        if active_state == "active":
+            return True, f"active ({sub_state or 'running'}, LoadState={load_state or 'unknown'})"
+
+        # 2. Failed with auto-restart: classify as active/unsafe and block restore
+        if active_state == "failed" and sub_state == "auto-restart":
+            return True, f"failed (auto-restart: service is restarting, LoadState={load_state or 'unknown'})"
+
+        # 3. Transitioning states: dedicated unsafe/transitioning result
+        if active_state in ("activating", "deactivating", "reloading"):
+            return "transitioning", f"transitioning ({active_state}: {sub_state}, LoadState={load_state or 'unknown'})"
+
+        # 4. Missing unit or unknown service
         if load_state in ("not-found", "masked", ""):
             return None, f"service unit '{service_name}' not found (LoadState={load_state or 'unknown'})"
 
-        # Explicitly active service
-        if active_state == "active":
-            return True, f"active ({sub_state or 'running'})"
-
-        # Explicitly inactive / stopped service
+        # 5. Explicitly inactive / stopped service
         if active_state == "inactive" and sub_state in ("dead", "inactive"):
             return False, f"inactive ({sub_state})"
 
-        # Failed service: return False ONLY if positively confirmed stopped/dead
+        # 6. Failed service: return False ONLY if positively confirmed stopped/dead
         if active_state == "failed":
             if sub_state in ("dead", "failed"):
                 return False, f"failed/stopped ({sub_state})"
-            return None, f"failed service state ambiguous or restarting (SubState={sub_state})"
+            return None, f"failed service state ambiguous (SubState={sub_state})"
 
-        # Transitioning states (must be treated as unverifiable / unsafe to bypass)
-        if active_state in ("activating", "deactivating", "reloading"):
-            return None, f"transitioning state: {active_state} ({sub_state})"
-
-        # Unrecognized or unknown states
+        # 7. Unrecognized or ambiguous states
         return None, f"unrecognized/ambiguous state: {active_state} ({sub_state})"
 
     except subprocess.TimeoutExpired:
@@ -288,7 +292,7 @@ def restore_database(
     target_db: Path = DEFAULT_DB_PATH,
     confirmed_offline_maintenance: bool = False,
     service_name: str = "aps-backend",
-    service_status_checker: Callable[[str], tuple[bool | None, str]] | None = None,
+    service_status_checker: Callable[[str], tuple[bool | str | None, str]] | None = None,
 ) -> None:
     """Safely restore a SQLite database from a verified backup.
 
@@ -323,25 +327,17 @@ def restore_database(
     checker = service_status_checker or check_systemd_service_status
     service_active, service_msg = checker(service_name)
 
-    if service_active is True:
+    # Active or auto-restarting or transitioning states must NEVER be bypassed by any flag
+    if service_active is True or service_active in ("active", "transitioning", "auto-restart", "unsafe"):
         raise RuntimeError(
-            f"Cannot restore: APS backend service '{service_name}' is actively running ({service_msg}). "
-            f"Restore must not replace database while service is running. "
+            f"Cannot restore: APS backend service '{service_name}' is actively running or transitioning ({service_msg}). "
+            f"Restore must not replace database while service is running or transitioning. "
             f"Stop the service first: sudo systemctl stop {service_name}"
         )
 
-    # Check if transitioning (never bypassed by confirmation flag)
-    if service_active is None and any(
-        t in service_msg.lower() for t in ["transitioning", "activating", "deactivating", "reloading"]
-    ):
-        raise RuntimeError(
-            f"Cannot restore: APS backend service '{service_name}' is in an active or transitioning state ({service_msg}). "
-            f"Stop the service or wait for it to complete transition before restoring."
-        )
-
-    if service_active is False:
+    if service_active is False or service_active == "stopped":
         print(f"[+] Verified service '{service_name}' is stopped ({service_msg}).")
-    else:  # service_active is None (unverifiable, non-systemd, missing unit)
+    else:  # service_active is None (unverifiable, non-systemd, missing unit, ambiguous)
         if not confirmed_offline_maintenance:
             raise RuntimeError(
                 f"Service manager (systemd) could not verify service status ({service_msg}). "
@@ -493,62 +489,72 @@ def restore_database(
         for suffix in sidecar_snapshots.keys()
     ]
 
-    replaced_main = False
+    target_staged = False
+    sidecars_staged = False
+    new_target_installed = False
     stage = "atomic staging preparation"
 
     try:
-        # Stage active sidecars away
+        # Step A: Stage active sidecars away
         stage = "sidecar staging"
         for orig_sc, staged_sc in staged_old_sidecars:
             if orig_sc.exists():
                 os.replace(orig_sc, staged_sc)
+        sidecars_staged = True
 
-        # Stage active database away
+        # Step B: Stage active database away
         stage = "target database staging"
         if target_db.exists():
             os.replace(target_db, staged_old_main)
+            target_staged = True
 
-        # Atomically place new database into active target path
+        # Step C: Atomically place new database into active target path
         stage = "target database replacement"
         print(f"[*] Staging verified. Atomically replacing target database: {target_db}")
         os.replace(temp_target, target_db)
-        replaced_main = True
+        new_target_installed = True
 
-        # Cleanup old sidecars and old database now that replacement is committed
-        stage = "sidecar and staging cleanup"
-        for _, staged_sc in staged_old_sidecars:
-            staged_sc.unlink(missing_ok=True)
-        if staged_old_main.exists():
-            staged_old_main.unlink(missing_ok=True)
-
-        # Clean up any leftover sidecars from the old target DB to ensure fresh state
+        # Step D: Clean up stale sidecars at target path before commit
+        stage = "stale sidecar cleanup"
         for suffix in ("-wal", "-shm", "-journal"):
-            Path(f"{target_db.as_posix()}{suffix}").unlink(missing_ok=True)
+            sc_to_clean = Path(f"{target_db.as_posix()}{suffix}")
+            if sc_to_clean.exists():
+                sc_to_clean.unlink()
+
+        # Step E: EXPLICIT COMMIT POINT
+        # All operations that could invalidate target replacement or trigger rollback have completed.
+        stage = "committed"
+        print(f"[+] Database replacement committed. Target database '{target_db}' is active.")
 
     except Exception as replace_err:
-        # Execute failure-safe rollback
+        # Pre-commit failure: execute failure-safe rollback
         rollback_succeeded = True
         rollback_err = None
 
         try:
-            if replaced_main and target_db.exists():
-                # If new target was already placed, remove it
+            # 1. Safely restore main database if it was staged away
+            # Atomically replace target_db with staged_old_main without unlinking target_db first
+            if target_staged and staged_old_main.exists():
+                os.replace(staged_old_main, target_db)
+                target_staged = False
+            elif new_target_installed and not target_staged:
+                # Target was never staged (didn't exist originally) but new target was placed
                 target_db.unlink(missing_ok=True)
 
-            # Restore original main database
-            if staged_old_main.exists():
-                os.replace(staged_old_main, target_db)
+            # 2. Restore original sidecars from staged locations
+            if sidecars_staged:
+                for orig_sc, staged_sc in staged_old_sidecars:
+                    if staged_sc.exists():
+                        os.replace(staged_sc, orig_sc)
 
-            # Restore original sidecars
-            for orig_sc, staged_sc in staged_old_sidecars:
-                if staged_sc.exists():
-                    os.replace(staged_sc, orig_sc)
-
-            # Double-check all original sidecars are present
+            # 3. Ensure all original sidecar content is restored on disk
             for suffix, data in sidecar_snapshots.items():
                 sc_p = Path(f"{target_db.as_posix()}{suffix}")
                 if not sc_p.exists():
-                    sc_p.write_bytes(data)
+                    try:
+                        sc_p.write_bytes(data)
+                    except OSError:
+                        pass
         except Exception as rb_exc:
             rollback_succeeded = False
             rollback_err = rb_exc
@@ -563,13 +569,54 @@ def restore_database(
                 "Original database remains active."
             ) from replace_err
         else:
+            preserved_loc = []
+            if staged_old_main.exists():
+                preserved_loc.append(f"staged file '{staged_old_main}'")
+            if target_db.exists() and not new_target_installed:
+                preserved_loc.append(f"active path '{target_db}'")
+            if safety_snapshot_path and safety_snapshot_path.exists():
+                preserved_loc.append(f"safety snapshot '{safety_snapshot_path}'")
+            preserved_desc = ", ".join(preserved_loc) if preserved_loc else "unknown (check filesystem)"
+
             raise RuntimeError(
                 f"CRITICAL: Restore failed during {stage}: {replace_err}. "
                 f"Automatic rollback failed ({rollback_err}). "
-                f"Original database is preserved at '{staged_old_main}'"
-                f"{f' (safety snapshot at {safety_snapshot_path})' if safety_snapshot_path else ''}. "
-                "Manual recovery is required."
+                f"Original database is preserved at {preserved_desc}. "
+                "Manual recovery is required before restarting the service."
             ) from replace_err
+
+    # POST-COMMIT: cleanup of staged old artifacts
+    # Replacement is committed; rollback is NOT attempted if cleanup fails.
+    cleanup_failed_artifacts: list[str] = []
+    try:
+        # Clean staged old sidecars
+        for _, staged_sc in staged_old_sidecars:
+            if staged_sc.exists():
+                try:
+                    staged_sc.unlink()
+                except OSError as e:
+                    cleanup_failed_artifacts.append(f"{staged_sc.name} ({e})")
+
+        # Clean staged old main DB
+        if staged_old_main.exists():
+            try:
+                staged_old_main.unlink()
+            except OSError as e:
+                cleanup_failed_artifacts.append(f"{staged_old_main.name} ({e})")
+
+        if temp_target.exists():
+            temp_target.unlink(missing_ok=True)
+
+    except Exception as cleanup_err:
+        cleanup_failed_artifacts.append(str(cleanup_err))
+
+    if cleanup_failed_artifacts:
+        print(f"[!] Warning: Replacement committed, but failed to clean up staged old files: {cleanup_failed_artifacts}")
+        raise RuntimeError(
+            f"Database replacement committed successfully, but cleanup of old staged artifacts failed: "
+            f"{', '.join(cleanup_failed_artifacts)}. Target database '{target_db}' is active and valid. "
+            f"Staged recovery files remain for manual cleanup: '{staged_old_main}'"
+        )
 
     source_counts = get_table_counts(backup_file)
     target_counts = get_table_counts(target_db)

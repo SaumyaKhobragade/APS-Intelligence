@@ -2,17 +2,17 @@
 
 import * as React from "react";
 import { ArrowDown, BrainCircuit, RefreshCw, ShieldAlert } from "lucide-react";
-import { BatchUpload } from "@/components/predictions/batch-upload";
-import { BusinessImpactPanel } from "@/components/predictions/business-impact-panel";
-import { DiagnosticAnalysis } from "@/components/predictions/diagnostic-analysis";
-import { ModelSelector } from "@/components/predictions/model-selector";
-import { PredictionHistory } from "@/components/predictions/prediction-history";
-import { PredictionResultPanel } from "@/components/predictions/prediction-result";
-import { SensorInputForm } from "@/components/predictions/sensor-input-form";
+import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/feedback";
-import { AppShell } from "@/components/layout/app-shell";
+import { ModelSelector } from "@/components/predictions/model-selector";
+import { SensorInputForm } from "@/components/predictions/sensor-input-form";
+import { BatchUpload } from "@/components/predictions/batch-upload";
+import { PredictionResultPanel } from "@/components/predictions/prediction-result";
+import { DiagnosticAnalysis } from "@/components/predictions/diagnostic-analysis";
+import { BusinessImpactPanel } from "@/components/predictions/business-impact-panel";
+import { PredictionHistory } from "@/components/predictions/prediction-history";
 import {
   CANONICAL_APS_FEATURES,
   downloadPredictionHistoryCsv,
@@ -23,7 +23,13 @@ import {
   predictSingle,
   type PredictionReference,
 } from "@/services/prediction-service";
-import type { BatchPredictionResponse, PredictionModelOption, PredictionResult, SensorFeatureDefinition } from "@/types";
+import type {
+  BatchPredictionResponse,
+  FeatureSchemaSource,
+  PredictionModelOption,
+  PredictionResult,
+  SensorFeatureDefinition,
+} from "@/types";
 
 type PredictionMode = "single" | "batch";
 
@@ -34,6 +40,7 @@ function PredictionWorkspace() {
       modelId: "experiment:phase9-final-validation-candidate",
       modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
       availability: "not_loaded",
+      approvalStatus: "unapproved",
       availabilityNote:
         "Candidate model is unapproved (promotions: 0). Production promotion required for live inference.",
       defaultThreshold: 0.115,
@@ -53,6 +60,8 @@ function PredictionWorkspace() {
       group: id.split("_")[0] ?? "other",
     }))
   );
+  const [schemaSource, setSchemaSource] = React.useState<FeatureSchemaSource>("canonical_fallback");
+  const [schemaWarning, setSchemaWarning] = React.useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -96,15 +105,18 @@ function PredictionWorkspace() {
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
       void fetchFeatureSchema(selectedReference)
-        .then((nextFeatures) => {
-          setFeatures(nextFeatures);
+        .then((schemaResult) => {
+          setFeatures(schemaResult.features);
+          setSchemaSource(schemaResult.source);
+          setSchemaWarning(schemaResult.warning);
           setReadings((prev) => {
-            if (Object.keys(prev).length === nextFeatures.length) return prev;
-            return Object.fromEntries(nextFeatures.map((f) => [f.id, null]));
+            if (Object.keys(prev).length === schemaResult.features.length) return prev;
+            return Object.fromEntries(schemaResult.features.map((f) => [f.id, null]));
           });
         })
         .catch((schemaError) => {
-          setError(schemaError instanceof Error ? schemaError.message : "Feature schema could not be loaded.");
+          setSchemaSource("canonical_fallback");
+          setSchemaWarning(schemaError instanceof Error ? schemaError.message : "Feature schema could not be loaded.");
         });
     }, 0);
     return () => window.clearTimeout(timer);
@@ -117,16 +129,18 @@ function PredictionWorkspace() {
     setError(null);
 
     try {
-      if (selectedModel.availability !== "available") {
-        try {
-          await predictSingle({ modelId: selectedModel.modelId, readings: nextReadings }, selectedReference);
-        } catch (apiError) {
-          const detail = apiError instanceof Error ? apiError.message : String(apiError);
-          setError(
-            `Inference blocked: The model '${selectedModel.modelName}' is an unapproved validation candidate (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions. API response: ${detail}`
-          );
-          return;
-        }
+      if (selectedModel.approvalStatus === "verification_failed") {
+        setError(
+          "Inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity."
+        );
+        return;
+      }
+
+      if (selectedModel.approvalStatus !== "approved" || selectedModel.availability !== "available") {
+        setError(
+          `Inference blocked: The model '${selectedModel.modelName}' is an unapproved validation candidate (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`
+        );
+        return;
       }
 
       const nextResult = await predictSingle({ modelId: selectedModel.modelId, readings: nextReadings }, selectedReference);
@@ -145,15 +159,17 @@ function PredictionWorkspace() {
     setError(null);
 
     try {
-      if (selectedModel.availability !== "available") {
-        try {
-          await predictBatch({ ...selectedReference, records });
-        } catch (apiError) {
-          const detail = apiError instanceof Error ? apiError.message : String(apiError);
-          const blockedMsg = `Batch inference blocked: Candidate model '${selectedModel.modelName}' is unapproved (promotions: 0). Backend safeguards prevent live predictions until production promotion. API response: ${detail}`;
-          setError(blockedMsg);
-          throw new Error(blockedMsg);
-        }
+      if (selectedModel.approvalStatus === "verification_failed") {
+        const unavailableMsg =
+          "Batch inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity.";
+        setError(unavailableMsg);
+        throw new Error(unavailableMsg);
+      }
+
+      if (selectedModel.approvalStatus !== "approved" || selectedModel.availability !== "available") {
+        const blockedMsg = `Batch inference blocked: Candidate model '${selectedModel.modelName}' is unapproved (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`;
+        setError(blockedMsg);
+        throw new Error(blockedMsg);
       }
 
       const response = await predictBatch({ ...selectedReference, records });
@@ -183,7 +199,8 @@ function PredictionWorkspace() {
     void load();
   }
 
-  const isModelApproved = selectedModel?.availability === "available";
+  const isModelApproved = selectedModel?.approvalStatus === "approved" && selectedModel?.availability === "available";
+  const isVerificationFailed = selectedModel?.approvalStatus === "verification_failed";
 
   return (
     <AppShell
@@ -232,8 +249,12 @@ function PredictionWorkspace() {
           <p className="flex items-center gap-2 text-sm text-ink">
             <BrainCircuit aria-hidden="true" className="size-4 text-signal" /> Primary operational workspace / backend inference
           </p>
-          <Badge variant={isModelApproved ? "success" : "neutral"}>
-            {isModelApproved ? "Production inference active" : "Registry safeguard: Unpromoted candidate"}
+          <Badge variant={isModelApproved ? "success" : isVerificationFailed ? "signal" : "neutral"}>
+            {isModelApproved
+              ? "Production inference active"
+              : isVerificationFailed
+              ? "Registry check unavailable"
+              : "Registry safeguard: Unpromoted candidate"}
           </Badge>
         </section>
 
@@ -254,15 +275,21 @@ function PredictionWorkspace() {
               <div>
                 <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
                   <ShieldAlert aria-hidden="true" className="size-3.5" />
-                  Lifecycle Safeguard Active
+                  {isVerificationFailed ? "Registry Verification Unavailable" : "Lifecycle Safeguard Active"}
                 </p>
-                <h3 className="mt-1 font-display text-2xl text-ink">Inference Gated / Unpromoted Candidate</h3>
+                <h3 className="mt-1 font-display text-2xl text-ink">
+                  {isVerificationFailed ? "Approval Status Could Not Be Established" : "Inference Gated / Unpromoted Candidate"}
+                </h3>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                  {selectedModel?.availabilityNote ??
-                    "The active model registry requires an approved model and promoted decision policy for live inference. In accordance with Phase 9 validation controls, candidate models are not automatically promoted to production."}
+                  {isVerificationFailed
+                    ? "The model registry or promotion service did not return authoritative approval status. Live inference is blocked until connectivity to registry safeguards is restored."
+                    : (selectedModel?.availabilityNote ??
+                       "The active model registry requires an approved model and promoted decision policy for live inference. In accordance with Phase 9 validation controls, candidate models are not automatically promoted to production.")}
                 </p>
               </div>
-              <Badge variant="neutral">Production Promotion Required</Badge>
+              <Badge variant="neutral">
+                {isVerificationFailed ? "Service Unavailable" : "Production Promotion Required"}
+              </Badge>
             </div>
           </div>
         ) : null}
@@ -296,6 +323,8 @@ function PredictionWorkspace() {
         {mode === "single" ? (
           <SensorInputForm
             features={features}
+            schemaSource={schemaSource}
+            schemaWarning={schemaWarning}
             isProcessing={isProcessing}
             onSubmit={handleSingleSubmit}
             isBlocked={!isModelApproved}
@@ -346,9 +375,11 @@ function PredictionWorkspace() {
 }
 
 function modelReference(model: PredictionModelOption): PredictionReference {
-  return model.referenceType === "experiment"
-    ? { experimentId: model.referenceId, decisionPolicyId: model.policyId }
-    : { modelRunId: model.referenceId, decisionPolicyId: model.policyId };
+  return {
+    modelRunId: model.referenceType === "training_run" ? model.referenceId : undefined,
+    experimentId: model.referenceType === "experiment" ? model.referenceId : undefined,
+    decisionPolicyId: model.policyId,
+  };
 }
 
 export { PredictionWorkspace };

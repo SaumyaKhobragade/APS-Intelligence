@@ -7,16 +7,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { parseNumericSensorValue } from "@/services/prediction-service";
-import type { SensorFeatureDefinition } from "@/types";
+import type { FeatureSchemaSource, SensorFeatureDefinition } from "@/types";
 
 interface SensorInputFormProps {
   features: SensorFeatureDefinition[];
+  schemaSource?: FeatureSchemaSource;
+  schemaWarning?: string;
   isProcessing: boolean;
   onSubmit: (readings: Record<string, number | null>) => void | Promise<void>;
   isBlocked?: boolean;
 }
 
-function SensorInputForm({ features, isProcessing, onSubmit, isBlocked = false }: SensorInputFormProps) {
+function SensorInputForm({
+  features,
+  schemaSource = "canonical_fallback",
+  schemaWarning,
+  isProcessing,
+  onSubmit,
+  isBlocked = false,
+}: SensorInputFormProps) {
   const [query, setQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -84,7 +93,7 @@ function SensorInputForm({ features, isProcessing, onSubmit, isBlocked = false }
       const raw = values[feature.id] ?? "";
       const result = parseNumericSensorValue(raw);
       if (!result.valid) {
-        nextErrors[feature.id] = result.error ?? "Numeric value expected";
+        nextErrors[feature.id] = "Must be a valid finite number or empty";
         continue;
       }
       parsed[feature.id] = result.value;
@@ -125,10 +134,16 @@ function SensorInputForm({ features, isProcessing, onSubmit, isBlocked = false }
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
             All 170 APS feature identifiers are available through searchable prefix groups. Valid zeros are preserved; blank or missing values are sent as null.
           </p>
+          {schemaSource === "canonical_fallback" && schemaWarning ? (
+            <p className="mt-2 text-xs text-muted font-mono">
+              Note: {schemaWarning}
+            </p>
+          ) : null}
         </div>
-        <div className="flex items-center gap-3">
-          <Badge variant="neutral">
-            <SlidersHorizontal aria-hidden="true" className="size-3" /> {features.length} fields supported
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge variant={schemaSource === "backend_verified" ? "success" : "neutral"}>
+            <SlidersHorizontal aria-hidden="true" className="size-3" />
+            {schemaSource === "backend_verified" ? "Backend verified (170 features)" : "Canonical fallback (170 features)"}
           </Badge>
           {isBlocked ? (
             <Badge variant="neutral">Inference Gated</Badge>

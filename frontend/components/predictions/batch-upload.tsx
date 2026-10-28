@@ -27,7 +27,6 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
   const [parsedRecords, setParsedRecords] = React.useState<Array<{ features: Record<string, number | null> }>>([]);
   const [validationErrors, setValidationErrors] = React.useState<string[]>([]);
   const [status, setStatus] = React.useState<BatchState>("idle");
-  const [progress, setProgress] = React.useState(0);
   const [isDragging, setIsDragging] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState("");
 
@@ -37,7 +36,6 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
     setSummary(null);
     setParsedRecords([]);
     setValidationErrors([]);
-    setProgress(0);
     setErrorMessage("");
     setStatus("idle");
 
@@ -90,13 +88,10 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
   async function processBatch() {
     if (!file || !parsedRecords.length || status === "processing" || isProcessing) return;
     setStatus("processing");
-    setProgress(30);
     setErrorMessage("");
 
     try {
-      setProgress(60);
       await onProcessed(parsedRecords, file);
-      setProgress(100);
       setStatus("completed");
     } catch (error) {
       setStatus("error");
@@ -111,7 +106,6 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
     setParsedRecords([]);
     setValidationErrors([]);
     setStatus("idle");
-    setProgress(0);
     setErrorMessage("");
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -179,14 +173,17 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
           >
             Browse CSV
           </Button>
-          {status === "processing" ? (
-            <div className="absolute inset-x-6 bottom-5">
-              <div className="flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                <span>Inference progress</span>
-                <span>{progress}%</span>
+          {status === "processing" || isProcessing ? (
+            <div className="absolute inset-x-6 bottom-5" role="status" aria-live="polite">
+              <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <span className="flex items-center gap-1.5 text-signal">
+                  <span className="size-2 animate-ping rounded-full bg-signal" />
+                  Awaiting backend inference
+                </span>
+                <span>Indeterminate</span>
               </div>
-              <div className="mt-2 h-1 bg-canvas-deep">
-                <div className="h-full bg-signal" style={{ width: `${progress}%` }} />
+              <div className="mt-2 h-1 overflow-hidden bg-canvas-deep">
+                <div className="h-full w-full bg-signal animate-pulse" />
               </div>
             </div>
           ) : null}
@@ -252,7 +249,24 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
 
           {batchResult ? (
             <div className="mt-6 border-y border-line bg-canvas-deep/30 p-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Server inference summary</p>
+              <div className="flex items-center justify-between border-b border-line pb-2.5">
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Server inference summary</p>
+                <Badge
+                  variant={
+                    batchResult.status === "completed"
+                      ? "success"
+                      : batchResult.status === "partial"
+                      ? "warning"
+                      : "signal"
+                  }
+                >
+                  {batchResult.status === "completed"
+                    ? `Completed (${batchResult.completedCount}/${batchResult.rowCount})`
+                    : batchResult.status === "partial"
+                    ? `Partial (${batchResult.completedCount} succeeded, ${batchResult.failedCount} failed)`
+                    : `Failed (${batchResult.failedCount}/${batchResult.rowCount} failed)`}
+                </Badge>
+              </div>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs font-mono">
                 <div>
                   <span className="text-muted block text-[10px]">Total</span>
@@ -271,9 +285,19 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
                 <div>
                   <span className="text-muted block text-[10px]">Pos / Neg</span>
                   <span className="text-ink font-semibold">
-                    {batchResult.positiveCount ?? 0} / {batchResult.negativeCount ?? 0}
+                    {typeof batchResult.positiveCount === "number" && typeof batchResult.negativeCount === "number"
+                      ? `${batchResult.positiveCount} / ${batchResult.negativeCount}`
+                      : "—"}
                   </span>
                 </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-mono text-muted border-t border-line pt-2">
+                {batchResult.serverTimestamp ? (
+                  <span>Server inference: {batchResult.serverTimestamp}</span>
+                ) : null}
+                {batchResult.clientReceivedAt ? (
+                  <span>Client received: {batchResult.clientReceivedAt}</span>
+                ) : null}
               </div>
               {batchResult.failedCount > 0 && batchResult.items ? (
                 <div className="mt-4 border-t border-line pt-3">
@@ -293,7 +317,7 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
             </div>
           ) : null}
 
-          <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-start">
             <Button
               variant="signal"
               className="flex-1"
@@ -309,9 +333,14 @@ function BatchUpload({ expectedFeatureIds, isProcessing, onProcessed, batchResul
               {status === "completed" ? "Process again" : "Execute batch prediction"}
             </Button>
             {batchResult ? (
-              <Button variant="outline" onClick={downloadResults}>
-                <Download aria-hidden="true" className="size-3.5" /> Export results CSV
-              </Button>
+              <div className="flex flex-col gap-1">
+                <Button variant="outline" onClick={downloadResults}>
+                  <Download aria-hidden="true" className="size-3.5" /> Export results CSV
+                </Button>
+                <span className="text-[10px] font-mono text-muted">
+                  Exports prediction IDs, classifications, probabilities, thresholds, and server error codes.
+                </span>
+              </div>
             ) : null}
           </div>
         </div>

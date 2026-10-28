@@ -155,15 +155,26 @@ export interface PredictionResult {
   missingFeatureCount?: number;
   batchRowCount?: number;
   featureContributions?: FeatureContribution[];
+  riskClassification?: "high" | "low";
 }
 
 export type PredictionClass = "normal" | "failure";
 
-export type PredictionStatus = "queued" | "processing" | "completed" | "failed";
+export type PredictionStatus = "queued" | "processing" | "completed" | "failed" | "partial";
 
 export type PredictionSource = "single" | "batch";
 
 export type PredictionAvailability = "demo_only" | "not_loaded" | "available";
+
+export type ModelApprovalStatus = "approved" | "unapproved" | "verification_failed";
+
+export type FeatureSchemaSource = "backend_verified" | "canonical_fallback";
+
+export interface FeatureSchemaResult {
+  features: SensorFeatureDefinition[];
+  source: FeatureSchemaSource;
+  warning?: string;
+}
 
 export interface SensorFeatureDefinition {
   id: string;
@@ -182,6 +193,7 @@ export interface PredictionModelOption {
   referenceId?: string;
   featureCount?: number;
   policyId?: string;
+  approvalStatus?: ModelApprovalStatus;
 }
 
 export interface FeatureContribution {
@@ -219,6 +231,8 @@ export interface BatchPredictionResponse {
   averageInferenceDurationMs?: number;
   resultsFileName: string;
   completedAt?: string;
+  serverTimestamp?: string;
+  clientReceivedAt?: string;
   warnings?: string[];
   firstPrediction?: PredictionResult;
   items?: Array<{
@@ -346,6 +360,8 @@ export interface ExperimentRecord {
   confusionMatrix?: ConfusionMatrix;
   createdAt: string;
   completedAt?: string;
+  serverTimestamp?: string;
+  clientReceivedAt?: string;
 }
 
 export type ExperimentType = "model_evaluation" | "threshold_evaluation" | "calibration" | "prediction_evaluation";

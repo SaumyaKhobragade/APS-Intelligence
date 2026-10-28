@@ -13,6 +13,7 @@ import type {
   BatchPredictionResponse,
   BatchUploadSummary,
   FeatureContribution,
+  FeatureSchemaResult,
   PredictionModelOption,
   PredictionRequest,
   PredictionResult,
@@ -55,144 +56,214 @@ export interface BackendBatchRequest extends PredictionReference {
   include_explanation?: boolean;
 }
 
-export async function fetchPredictionModels(): Promise<PredictionModelOption[]> {
-  try {
-    const [models, policies, registry, promotions] = await Promise.all([
-      apiFetch<BackendPredictionModelListResponse>("/predictions/models?page=1&page_size=100").catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
-      apiFetch<BackendPolicyListResponse>("/predictions/policies?page=1&page_size=100").catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
-      apiFetch<BackendRegistryListResponse>("/models/registry?page=1&page_size=100").catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
-      apiFetch<{ items: Array<{ promotion_id: string; model_reference_type: BackendReferenceType; model_reference_id: string; decision_policy_id: string; status: string }> }>("/models/promotions?page=1&page_size=100").catch(() => ({ items: [] })),
-    ]);
-
-    const activePromotion = promotions.items.find((promotion) => promotion.status === "active");
-    const mapped: PredictionModelOption[] = models.items.map((model) => {
-      const registered = registry.items.find(
-        (item) => item.model_reference_type === model.model_reference_type && item.model_reference_id === model.model_reference_id
-      );
-      const policy = policies.items.find(
-        (item) => item.model_reference_type === model.model_reference_type && item.model_reference_id === model.model_reference_id && item.status === "active"
-      );
-      const isApproved =
-        registered?.lifecycle_status === "approved" &&
-        activePromotion?.model_reference_type === model.model_reference_type &&
-        activePromotion.model_reference_id === model.model_reference_id &&
-        activePromotion.decision_policy_id === policy?.policy_id;
-
-      return {
-        modelId: `${model.model_reference_type}:${model.model_reference_id}`,
-        modelName: `${model.model_name} / ${model.model_version}`,
-        availability: isApproved ? "available" : "not_loaded",
-        availabilityNote: isApproved
-          ? "Approved model and active decision policy are available."
-          : `Inference unavailable until an approved model/policy pair is registered. Current lifecycle: ${registered?.lifecycle_status ?? model.status}.`,
-        defaultThreshold: model.default_threshold,
-        referenceType: model.model_reference_type,
-        referenceId: model.model_reference_id,
-        featureCount: model.feature_count,
-        policyId: isApproved ? policy?.policy_id : undefined,
-      };
-    });
-
-    const candidateId = "experiment:phase9-final-validation-candidate";
-    if (!mapped.some((item) => item.modelId === candidateId)) {
-      mapped.push({
-        modelId: candidateId,
-        modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
-        availability: "not_loaded",
-        availabilityNote: "Candidate model is unapproved (promotions: 0). Production promotion required for live inference.",
-        defaultThreshold: 0.115,
-        referenceType: "experiment",
-        referenceId: "phase9-final-validation-candidate",
-        featureCount: 170,
-        policyId: undefined,
-      });
-    }
-
-    return mapped;
-  } catch {
-    return [
-      {
-        modelId: "experiment:phase9-final-validation-candidate",
-        modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
-        availability: "not_loaded",
-        availabilityNote: "Candidate model is unapproved (promotions: 0). Production promotion required for live inference.",
-        defaultThreshold: 0.115,
-        referenceType: "experiment",
-        referenceId: "phase9-final-validation-candidate",
-        featureCount: 170,
-        policyId: undefined,
-      },
-    ];
-  }
-}
-
-export async function fetchFeatureSchema(reference?: PredictionReference): Promise<SensorFeatureDefinition[]> {
-  if (reference?.modelRunId || reference?.experimentId) {
-    try {
-      const { referenceType, referenceId } = referenceParts(reference);
-      const response = await apiFetch<BackendFeatureSchemaResponse>(
-        `/predictions/models/${referenceType}/${encodeURIComponent(referenceId)}/features`
-      );
-      if (response?.feature_names && response.feature_names.length === 170) {
-        return response.feature_names.map((id, order) => ({
-          id,
-          order,
-          group: id.split("_")[0] ?? "other",
-        }));
-      }
-    } catch {
-      // Endpoint failed or model is unapproved candidate; fallback to authoritative canonical schema
-    }
-  }
-
-  return CANONICAL_APS_FEATURES.map((id, order) => ({
-    id,
-    order,
-    group: id.split("_")[0] ?? "other",
-  }));
-}
-
-export function parseNumericSensorValue(raw: string): { valid: boolean; value: number | null; error?: string } {
-  const trimmed = raw.trim();
-  if (trimmed === "" || trimmed.toLowerCase() === "na" || trimmed.toLowerCase() === "null") {
+export function parseNumericSensorValue(raw: unknown): { valid: boolean; value: number | null } {
+  if (raw === null || raw === undefined) {
     return { valid: true, value: null };
   }
-  if (/^(nan|infinity|-infinity|\+infinity)$/i.test(trimmed)) {
-    return { valid: false, value: null, error: "NaN and Infinity values are not accepted" };
+  const str = String(raw).trim();
+  if (str === "" || str === "na" || str === "nan" || str === "null" || str === "NaN" || str === "None") {
+    return { valid: true, value: null };
   }
-  if (!/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(trimmed) && !/^-?\.\d+([eE][+-]?\d+)?$/.test(trimmed)) {
-    return { valid: false, value: null, error: "Numeric value expected" };
+  if (str === "0" || str === "+0" || str === "-0") {
+    return { valid: true, value: 0 };
   }
-  const num = Number(trimmed);
-  if (!Number.isFinite(num)) {
-    return { valid: false, value: null, error: "Finite numeric value expected" };
+  const num = Number(str);
+  if (Number.isNaN(num) || !Number.isFinite(num)) {
+    return { valid: false, value: null };
   }
   return { valid: true, value: num };
 }
 
-export function validateSensorPayload(
-  readings: Record<string, number | null>,
-  expectedFeatureIds: readonly string[] = CANONICAL_APS_FEATURES
-): { valid: boolean; errors: Record<string, string> } {
+export function validateSensorPayload(payload: Record<string, unknown>, expectedFeatures: readonly string[] = CANONICAL_APS_FEATURES): {
+  valid: boolean;
+  errors: Record<string, string>;
+  sanitized: Record<string, number | null>;
+} {
   const errors: Record<string, string> = {};
-  for (const id of expectedFeatureIds) {
-    const val = readings[id];
-    if (val !== null && val !== undefined) {
-      if (typeof val !== "number" || !Number.isFinite(val)) {
-        errors[id] = "Must be a finite numeric value or null";
+  const sanitized: Record<string, number | null> = {};
+
+  for (const featureId of expectedFeatures) {
+    const raw = payload[featureId];
+    const parsed = parseNumericSensorValue(raw);
+    if (!parsed.valid) {
+      errors[featureId] = `Sensor value for '${featureId}' must be a valid finite number or empty.`;
+    } else {
+      sanitized[featureId] = parsed.value;
+    }
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+    sanitized,
+  };
+}
+
+export function parseCsvRecords(csvText: string): { rows: string[][]; parseErrors: string[] } {
+  const rows: string[][] = [];
+  const parseErrors: string[] = [];
+
+  let currentRow: string[] = [];
+  let currentField = "";
+  let inQuotes = false;
+  let quoteJustClosed = false;
+  let fieldHadQuotes = false;
+  let lineNum = 1;
+  let quoteStartLine = 1;
+
+  let text = csvText;
+  if (text.charCodeAt(0) === 0xfeff) {
+    text = text.slice(1);
+  }
+
+  const len = text.length;
+  let i = 0;
+
+  while (i < len) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (i + 1 < len && text[i + 1] === '"') {
+          currentField += '"';
+          i += 2;
+          continue;
+        } else {
+          inQuotes = false;
+          quoteJustClosed = true;
+          i++;
+          continue;
+        }
+      } else {
+        if (char === "\n") {
+          lineNum++;
+        }
+        currentField += char;
+        i++;
+        continue;
+      }
+    } else {
+      if (quoteJustClosed) {
+        if (char === ",") {
+          currentRow.push(currentField);
+          currentField = "";
+          quoteJustClosed = false;
+          fieldHadQuotes = false;
+          i++;
+          continue;
+        } else if (char === "\r") {
+          currentRow.push(currentField);
+          currentField = "";
+          quoteJustClosed = false;
+          fieldHadQuotes = false;
+          if (i + 1 < len && text[i + 1] === "\n") {
+            i++;
+          }
+          rows.push(currentRow);
+          currentRow = [];
+          lineNum++;
+          i++;
+          continue;
+        } else if (char === "\n") {
+          currentRow.push(currentField);
+          currentField = "";
+          quoteJustClosed = false;
+          fieldHadQuotes = false;
+          rows.push(currentRow);
+          currentRow = [];
+          lineNum++;
+          i++;
+          continue;
+        } else if (char === " " || char === "\t") {
+          let j = i;
+          while (j < len && (text[j] === " " || text[j] === "\t")) j++;
+          if (j < len && (text[j] === "," || text[j] === "\r" || text[j] === "\n")) {
+            i = j;
+            continue;
+          } else {
+            parseErrors.push(`Malformed quoting at line ${lineNum}: unexpected character after closing quote.`);
+            currentField += char;
+            quoteJustClosed = false;
+            i++;
+            continue;
+          }
+        } else {
+          parseErrors.push(`Malformed quoting at line ${lineNum}: unexpected character '${char}' after closing quote.`);
+          quoteJustClosed = false;
+          currentField += char;
+          i++;
+          continue;
+        }
+      }
+
+      if (char === '"') {
+        if (currentField.length === 0 || /^\s+$/.test(currentField)) {
+          currentField = "";
+          inQuotes = true;
+          fieldHadQuotes = true;
+          quoteStartLine = lineNum;
+          i++;
+          continue;
+        } else {
+          parseErrors.push(`Malformed quoting at line ${lineNum}: unescaped quote inside field.`);
+          currentField += char;
+          i++;
+          continue;
+        }
+      } else if (char === ",") {
+        currentRow.push(currentField);
+        currentField = "";
+        fieldHadQuotes = false;
+        i++;
+        continue;
+      } else if (char === "\r") {
+        currentRow.push(currentField);
+        currentField = "";
+        fieldHadQuotes = false;
+        if (i + 1 < len && text[i + 1] === "\n") {
+          i++;
+        }
+        rows.push(currentRow);
+        currentRow = [];
+        lineNum++;
+        i++;
+        continue;
+      } else if (char === "\n") {
+        currentRow.push(currentField);
+        currentField = "";
+        fieldHadQuotes = false;
+        rows.push(currentRow);
+        currentRow = [];
+        lineNum++;
+        i++;
+        continue;
+      } else {
+        currentField += char;
+        i++;
+        continue;
       }
     }
   }
-  return { valid: Object.keys(errors).length === 0, errors };
-}
 
-export interface BatchValidationResult {
-  valid: boolean;
-  errors: string[];
-  summary?: BatchUploadSummary;
-  records?: Array<{ features: Record<string, number | null> }>;
-  previewHeaders: string[];
-  previewRows: Record<string, string>[];
+  if (inQuotes) {
+    parseErrors.push(`Malformed quoting: unclosed quote starting at line ${quoteStartLine}.`);
+  }
+
+  if (currentField.length > 0 || quoteJustClosed || fieldHadQuotes || currentRow.length > 0) {
+    currentRow.push(currentField);
+    rows.push(currentRow);
+  }
+
+  if (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    if (last.length === 1 && last[0] === "" && !quoteJustClosed) {
+      if (text.endsWith("\n") || text.endsWith("\r")) {
+        rows.pop();
+      }
+    }
+  }
+
+  return { rows, parseErrors };
 }
 
 export function parseAndValidateBatchCsv(
@@ -200,30 +271,43 @@ export function parseAndValidateBatchCsv(
   fileName: string,
   fileSizeBytes: number,
   expectedFeatureIds: readonly string[] = CANONICAL_APS_FEATURES
-): BatchValidationResult {
+): {
+  valid: boolean;
+  errors: string[];
+  summary?: BatchUploadSummary;
+  records?: Array<{ features: Record<string, number | null> }>;
+  previewHeaders: string[];
+  previewRows: Record<string, string>[];
+} {
   const errors: string[] = [];
-  const lines = csvText.trim().split(/\r?\n/).filter(Boolean);
 
-  if (lines.length === 0) {
+  const { rows, parseErrors } = parseCsvRecords(csvText);
+  if (parseErrors.length > 0) {
+    errors.push(...parseErrors);
+  }
+
+  if (rows.length === 0) {
+    errors.push("The CSV file is completely empty.");
     return {
       valid: false,
-      errors: ["CSV file contains no data or headers."],
+      errors,
+      summary: {
+        fileName,
+        fileSizeBytes,
+        rowCount: 0,
+        featureCount: 0,
+        missingFeatureCount: expectedFeatureIds.length,
+        missingValueCount: 0,
+        status: "error",
+        errorMessage: errors[0],
+      },
       previewHeaders: [],
       previewRows: [],
     };
   }
 
-  const rawHeader = lines[0] ?? "";
-  const headers = rawHeader.split(",").map((h) => h.trim());
-
-  if (headers.length === 0 || headers.every((h) => !h)) {
-    return {
-      valid: false,
-      errors: ["CSV header row is empty or malformed."],
-      previewHeaders: [],
-      previewRows: [],
-    };
-  }
+  const rawHeaders = rows[0] ?? [];
+  const headers = rawHeaders.map((h) => h.trim());
 
   const headerCounts = new Map<string, number>();
   const duplicateHeaders: string[] = [];
@@ -250,13 +334,13 @@ export function parseAndValidateBatchCsv(
     errors.push(`Unexpected column(s) detected: ${sample}${more}. The backend schema forbids unexpected columns.`);
   }
 
-  const dataLines = lines.slice(1);
-  if (dataLines.length === 0) {
+  const dataRows = rows.slice(1);
+  if (dataRows.length === 0) {
     errors.push("CSV file contains a header but no data rows.");
   }
 
-  if (dataLines.length > 1000) {
-    errors.push(`File contains ${dataLines.length} data rows. The backend batch inference maximum is 1,000 records.`);
+  if (dataRows.length > 1000) {
+    errors.push(`File contains ${dataRows.length} data rows. The backend batch inference maximum is 1,000 records.`);
   }
 
   const previewRows: Record<string, string>[] = [];
@@ -264,9 +348,8 @@ export function parseAndValidateBatchCsv(
   let missingValueCount = 0;
   let cellErrorCount = 0;
 
-  for (let rIdx = 0; rIdx < dataLines.length; rIdx++) {
-    const line = dataLines[rIdx]!;
-    const cells = line.split(",").map((c) => c.trim());
+  for (let rIdx = 0; rIdx < dataRows.length; rIdx++) {
+    const cells = dataRows[rIdx]!;
 
     if (cells.length !== headers.length) {
       if (cellErrorCount < 5) {
@@ -284,7 +367,7 @@ export function parseAndValidateBatchCsv(
       previewRows.push(rowObj);
     }
 
-    if (errors.length === 0 || errors.every((e) => !e.startsWith("Missing") && !e.startsWith("Unexpected") && !e.startsWith("Duplicate"))) {
+    if (errors.length === 0 || errors.every((e) => !e.startsWith("Missing") && !e.startsWith("Unexpected") && !e.startsWith("Duplicate") && !e.startsWith("Malformed"))) {
       const recordFeatures: Record<string, number | null> = {};
       for (const featureId of expectedFeatureIds) {
         const cellValue = rowObj[featureId] ?? "";
@@ -313,7 +396,7 @@ export function parseAndValidateBatchCsv(
   const summary: BatchUploadSummary = {
     fileName,
     fileSizeBytes,
-    rowCount: dataLines.length,
+    rowCount: dataRows.length,
     featureCount: headers.filter((h) => expectedFeatureIds.includes(h)).length,
     missingFeatureCount: missingColumns.length,
     missingValueCount,
@@ -329,6 +412,185 @@ export function parseAndValidateBatchCsv(
     previewHeaders: headers.slice(0, 6),
     previewRows,
   };
+}
+
+export async function fetchPredictionModels(): Promise<PredictionModelOption[]> {
+  let modelsResult: BackendPredictionModelListResponse = { items: [], total: 0, page: 1, page_size: 100 };
+  let policiesResult: BackendPolicyListResponse = { items: [], total: 0, page: 1, page_size: 100 };
+  let registryResult: BackendRegistryListResponse = { items: [], total: 0, page: 1, page_size: 100 };
+  let promotionsResult: { items: Array<{ promotion_id: string; model_reference_type: BackendReferenceType; model_reference_id: string; decision_policy_id: string; status: string }> } = { items: [] };
+
+  let registryCallFailed = false;
+  let promotionsCallFailed = false;
+
+  const [mRes, polRes, regRes, promRes] = await Promise.allSettled([
+    apiFetch<BackendPredictionModelListResponse>("/predictions/models?page=1&page_size=100"),
+    apiFetch<BackendPolicyListResponse>("/predictions/policies?page=1&page_size=100"),
+    apiFetch<BackendRegistryListResponse>("/models/registry?page=1&page_size=100"),
+    apiFetch<{ items: Array<{ promotion_id: string; model_reference_type: BackendReferenceType; model_reference_id: string; decision_policy_id: string; status: string }> }>("/models/promotions?page=1&page_size=100"),
+  ]);
+
+  if (mRes.status === "fulfilled") modelsResult = mRes.value;
+  if (polRes.status === "fulfilled") policiesResult = polRes.value;
+  if (regRes.status === "fulfilled") {
+    registryResult = regRes.value;
+  } else {
+    registryCallFailed = true;
+  }
+  if (promRes.status === "fulfilled") {
+    promotionsResult = promRes.value;
+  } else {
+    promotionsCallFailed = true;
+  }
+
+  const approvalCheckFailed = registryCallFailed || promotionsCallFailed;
+  const activePromotion = promotionsResult.items.find((promotion) => promotion.status === "active");
+
+  const mapped: PredictionModelOption[] = modelsResult.items.map((model) => {
+    if (approvalCheckFailed) {
+      return {
+        modelId: `${model.model_reference_type}:${model.model_reference_id}`,
+        modelName: `${model.model_name} / ${model.model_version}`,
+        availability: "not_loaded",
+        approvalStatus: "verification_failed",
+        availabilityNote: "Model approval status could not be established because registry or promotion checks failed.",
+        defaultThreshold: model.default_threshold,
+        referenceType: model.model_reference_type,
+        referenceId: model.model_reference_id,
+        featureCount: model.feature_count,
+        policyId: undefined,
+      };
+    }
+
+    const registered = registryResult.items.find(
+      (item) => item.model_reference_type === model.model_reference_type && item.model_reference_id === model.model_reference_id
+    );
+    const policy = policiesResult.items.find(
+      (item) => item.model_reference_type === model.model_reference_type && item.model_reference_id === model.model_reference_id && item.status === "active"
+    );
+    const isApproved =
+      registered?.lifecycle_status === "approved" &&
+      activePromotion?.model_reference_type === model.model_reference_type &&
+      activePromotion.model_reference_id === model.model_reference_id &&
+      activePromotion.decision_policy_id === policy?.policy_id;
+
+    return {
+      modelId: `${model.model_reference_type}:${model.model_reference_id}`,
+      modelName: `${model.model_name} / ${model.model_version}`,
+      availability: isApproved ? "available" : "not_loaded",
+      approvalStatus: isApproved ? "approved" : "unapproved",
+      availabilityNote: isApproved
+        ? "Approved model and active decision policy are available."
+        : `Inference unavailable until an approved model/policy pair is registered. Current lifecycle: ${registered?.lifecycle_status ?? model.status}.`,
+      defaultThreshold: model.default_threshold,
+      referenceType: model.model_reference_type,
+      referenceId: model.model_reference_id,
+      featureCount: model.feature_count,
+      policyId: isApproved ? policy?.policy_id : undefined,
+    };
+  });
+
+  const candidateId = "experiment:phase9-final-validation-candidate";
+  if (!mapped.some((item) => item.modelId === candidateId)) {
+    mapped.push({
+      modelId: candidateId,
+      modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
+      availability: "not_loaded",
+      approvalStatus: approvalCheckFailed ? "verification_failed" : "unapproved",
+      availabilityNote: approvalCheckFailed
+        ? "Model approval status could not be established because registry or promotion checks failed."
+        : "Candidate model is unapproved (promotions: 0). Production promotion required for live inference.",
+      defaultThreshold: 0.115,
+      referenceType: "experiment",
+      referenceId: "phase9-final-validation-candidate",
+      featureCount: 170,
+      policyId: undefined,
+    });
+  }
+
+  return mapped;
+}
+
+export async function fetchFeatureSchema(reference?: PredictionReference): Promise<FeatureSchemaResult> {
+  const canonicalFeatures: SensorFeatureDefinition[] = CANONICAL_APS_FEATURES.map((id, order) => ({
+    id,
+    order,
+    group: id.split("_")[0] ?? "other",
+  }));
+
+  if (!reference?.modelRunId && !reference?.experimentId) {
+    return {
+      features: canonicalFeatures,
+      source: "canonical_fallback",
+      warning: "No model reference specified. Using canonical APS 170-feature fallback schema (unverified against selected model).",
+    };
+  }
+
+  try {
+    const { referenceType, referenceId } = referenceParts(reference);
+    const response = await apiFetch<BackendFeatureSchemaResponse>(
+      `/predictions/models/${referenceType}/${encodeURIComponent(referenceId)}/features`
+    );
+
+    if (!response || !Array.isArray(response.feature_names)) {
+      return {
+        features: canonicalFeatures,
+        source: "canonical_fallback",
+        warning: "Feature schema endpoint returned malformed response. Using canonical APS 170-feature fallback schema (unverified against selected model).",
+      };
+    }
+
+    const { feature_names } = response;
+
+    if (feature_names.length !== 170) {
+      return {
+        features: canonicalFeatures,
+        source: "canonical_fallback",
+        warning: `Backend feature endpoint returned ${feature_names.length} features (expected 170). Using canonical APS 170-feature fallback schema (unverified against selected model).`,
+      };
+    }
+
+    const seen = new Set<string>();
+    for (const name of feature_names) {
+      if (seen.has(name)) {
+        return {
+          features: canonicalFeatures,
+          source: "canonical_fallback",
+          warning: "Backend feature endpoint returned duplicate feature identifiers. Using canonical APS 170-feature fallback schema (unverified against selected model).",
+        };
+      }
+      seen.add(name);
+    }
+
+    const canonicalSet = new Set(CANONICAL_APS_FEATURES);
+    for (const name of feature_names) {
+      if (!canonicalSet.has(name)) {
+        return {
+          features: canonicalFeatures,
+          source: "canonical_fallback",
+          warning: `Backend feature endpoint contained incompatible feature identifier '${name}'. Using canonical APS 170-feature fallback schema (unverified against selected model).`,
+        };
+      }
+    }
+
+    const verifiedFeatures: SensorFeatureDefinition[] = feature_names.map((id, order) => ({
+      id,
+      order,
+      group: id.split("_")[0] ?? "other",
+    }));
+
+    return {
+      features: verifiedFeatures,
+      source: "backend_verified",
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      features: canonicalFeatures,
+      source: "canonical_fallback",
+      warning: `Feature schema endpoint unavailable (${detail}). Using canonical APS 170-feature fallback schema (unverified against selected model).`,
+    };
+  }
 }
 
 export function predictSingle(request: PredictionRequest, reference: PredictionReference): Promise<PredictionResult> {
@@ -359,14 +621,21 @@ export function downloadPredictionHistoryCsv(): Promise<void> {
   return apiDownload("/exports/predictions.csv?page_size=5000", "aps-prediction-history.csv");
 }
 
-export function exportBatchPredictionsCsv(batch: BatchPredictionResponse, originalFileName = "batch"): void {
-  const header = "row_index,prediction_id,predicted_class,failure_probability,applied_threshold,risk_classification,status,error_code,error_message";
+function escapeCsvCell(val: unknown): string {
+  if (val === null || val === undefined) return '""';
+  const str = String(val);
+  return `"${str.replaceAll('"', '""')}"`;
+}
+
+export function generateBatchPredictionsCsv(batch: BatchPredictionResponse): string {
+  const header = '"row_index","prediction_id","predicted_class","failure_probability","applied_threshold","risk_classification","status","error_code","error_message"';
   const rows: string[] = [];
 
   if (batch.items && batch.items.length > 0) {
     for (const item of batch.items) {
       if (item.prediction) {
         const pred = item.prediction;
+        const risk = pred.riskClassification ?? (pred.predictedLabel === "failure" ? "high" : "low");
         rows.push(
           [
             item.index,
@@ -374,12 +643,12 @@ export function exportBatchPredictionsCsv(batch: BatchPredictionResponse, origin
             pred.predictedLabel === "failure" ? "pos" : "neg",
             pred.failureProbability.toFixed(6),
             pred.threshold.toFixed(6),
-            pred.predictedLabel === "failure" ? "high" : "low",
-            pred.status,
+            risk,
+            pred.status ?? "completed",
             "",
             "",
           ]
-            .map((val) => `"${String(val).replaceAll('"', '""')}"`)
+            .map(escapeCsvCell)
             .join(",")
         );
       } else if (item.error) {
@@ -395,14 +664,21 @@ export function exportBatchPredictionsCsv(batch: BatchPredictionResponse, origin
             item.error.code,
             item.error.message,
           ]
-            .map((val) => `"${String(val).replaceAll('"', '""')}"`)
+            .map(escapeCsvCell)
             .join(",")
         );
       }
     }
   }
 
-  const csvContent = [header, ...rows].join("\n");
+  return [header, ...rows].join("\r\n");
+}
+
+export function exportBatchPredictionsCsv(batch: BatchPredictionResponse, originalFileName = "batch"): void {
+  const csvContent = generateBatchPredictionsCsv(batch);
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -450,6 +726,7 @@ function mapPrediction(response: BackendPredictionResponse): PredictionResult {
     predictedLabel: response.predicted_class === "pos" ? "failure" : "normal",
     failureProbability: response.failure_probability,
     threshold: response.applied_threshold,
+    riskClassification: response.risk_classification,
     modelId: `${response.model_reference_type}:${response.model_reference_id}`,
     modelName: response.model_version,
     createdAt: response.prediction_timestamp,
@@ -468,9 +745,20 @@ function mapBatchPrediction(response: BackendBatchPredictionResponse): BatchPred
 
   const firstSuccess = mappedItems.find((item) => item.prediction)?.prediction;
 
+  const hasSuccess = response.successful_count > 0;
+  const hasFailure = response.failed_count > 0;
+  let status: "completed" | "partial" | "failed" = "completed";
+  if (hasFailure && hasSuccess) {
+    status = "partial";
+  } else if (hasFailure && !hasSuccess) {
+    status = "failed";
+  } else {
+    status = "completed";
+  }
+
   return {
     batchId: response.batch_id,
-    status: response.failed_count === 0 ? "completed" : "completed",
+    status,
     rowCount: response.total_records,
     completedCount: response.successful_count,
     failedCount: response.failed_count,
@@ -479,7 +767,8 @@ function mapBatchPrediction(response: BackendBatchPredictionResponse): BatchPred
     totalInferenceDurationMs: response.total_inference_duration_ms,
     averageInferenceDurationMs: response.average_inference_duration_ms,
     resultsFileName: `${response.batch_id}.json`,
-    completedAt: new Date().toISOString(),
+    serverTimestamp: firstSuccess?.createdAt,
+    clientReceivedAt: new Date().toISOString(),
     warnings: response.warnings,
     firstPrediction: firstSuccess ? { ...firstSuccess, source: "batch", batchRowCount: response.total_records } : undefined,
     items: mappedItems,

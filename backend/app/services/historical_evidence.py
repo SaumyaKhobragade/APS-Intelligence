@@ -148,11 +148,26 @@ class HistoricalEvidenceService:
         if not path.is_file():
             return None
         try:
-            return sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+            return conn
         except sqlite3.DatabaseError as exc:
-            raise ArtifactCompatibilityError("Historical evidence database is not a readable SQLite database.") from exc
+            raise ArtifactCompatibilityError(f"Historical evidence database '{name}' is not a readable SQLite database.") from exc
         except OSError as exc:
-            raise DatabaseOperationError("The historical evidence database could not be opened.") from exc
+            raise DatabaseOperationError(f"The historical evidence database '{name}' could not be opened.") from exc
+
+    def _connect_required(self, name: str) -> sqlite3.Connection:
+        path = self._database_path(name)
+        if not path.is_file():
+            raise ArtifactUnavailableError(f"Historical evidence database '{name}' is unavailable.")
+        try:
+            conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+            return conn
+        except sqlite3.DatabaseError as exc:
+            raise ArtifactCompatibilityError(f"Historical evidence database '{name}' is not a readable SQLite database.") from exc
+        except OSError as exc:
+            raise DatabaseOperationError(f"The historical evidence database '{name}' could not be opened.") from exc
 
     @staticmethod
     def _rows(connection: sqlite3.Connection, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -630,62 +645,86 @@ class HistoricalEvidenceService:
 
     def experiment_detail(self, reference_id: str) -> HistoricalRunDetail:
         reference_id = _safe_component(reference_id)
-        for row in self._phase4_rows():
-            if row["experiment_id"] == reference_id:
-                return self._detail_from_phase4(row)
         if reference_id == "phase9-final-validation-candidate":
-            row = self._phase9_row(reference_id)
+            conn9 = self._connect_required("phase9_validation.db")
+            try:
+                row = self._row(conn9, "SELECT * FROM experiment_runs WHERE experiment_id = ?", (reference_id,))
+                if row is not None:
+                    summary = self._phase9_summary(row)
+                    _, validation_metrics, _, _ = self._phase9_payloads()
+                    selected = validation_metrics.get("selected_candidate", {})
+                    frozen = selected.get("calibrated_internal_min_cost_threshold", {})
+                    artifacts = self._phase9_artifacts()
+                    return HistoricalRunDetail(
+                        **summary.model_dump(),
+                        configuration=_dict(row.get("configuration_json")),
+                        hyperparameters=_dict(row.get("best_parameters_json")),
+                        search_results=_list(row.get("search_results_json")),
+                        feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
+                        metrics=[_metric(frozen, scope="validation", label="External validation / frozen threshold 0.115", source_reference="artifacts/phase9/phase9-final-validation/validation_metrics.json")],
+                        artifacts=artifacts,
+                        availability=[self._availability("phase9_artifacts", artifacts)],
+                        provenance=[
+                            "Read from data/phase9_validation.db.",
+                            "Metrics normalized from the selected_candidate.calibrated_internal_min_cost_threshold scope.",
+                            "Production approval and promotion are not present.",
+                        ],
+                        error_message=row.get("error_message"),
+                    )
+                raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
+            finally:
+                conn9.close()
+
+        conn4 = self._connect_required("phase4_smoke.db")
+        try:
+            row = self._row(conn4, "SELECT * FROM experiment_runs WHERE experiment_id = ?", (reference_id,))
             if row is not None:
-                summary = self._phase9_summary(row)
-                _, validation_metrics, _, _ = self._phase9_payloads()
-                selected = validation_metrics.get("selected_candidate", {})
-                frozen = selected.get("calibrated_internal_min_cost_threshold", {})
-                artifacts = self._phase9_artifacts()
-                return HistoricalRunDetail(
-                    **summary.model_dump(),
-                    configuration=_dict(row.get("configuration_json")),
-                    hyperparameters=_dict(row.get("best_parameters_json")),
-                    search_results=_list(row.get("search_results_json")),
-                    feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
-                    metrics=[_metric(frozen, scope="validation", label="External validation / frozen threshold 0.115", source_reference="artifacts/phase9/phase9-final-validation/validation_metrics.json")],
-                    artifacts=artifacts,
-                    availability=[self._availability("phase9_artifacts", artifacts)],
-                    provenance=[
-                        "Read from data/phase9_validation.db.",
-                        "Metrics normalized from the selected_candidate.calibrated_internal_min_cost_threshold scope.",
-                        "Production approval and promotion are not present.",
-                    ],
-                    error_message=row.get("error_message"),
-                )
-        raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
+                return self._detail_from_phase4(row)
+            raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
+        finally:
+            conn4.close()
 
     def training_run_detail(self, reference_id: str) -> HistoricalRunDetail:
         reference_id = _safe_component(reference_id)
-        for row in self._phase3_rows():
-            if row.get("run_id") == reference_id:
-                return self._detail_from_phase3(row)
-        raise ResourceNotFoundError(f"Historical training run '{reference_id}' was not found.")
-
-    def get_historical_detail(self, reference_type: str, reference_id: str) -> HistoricalRunDetail | None:
+        conn = self._connect_required("phase3_smoke.db")
         try:
-            clean_id = _safe_component(reference_id)
-        except Exception:
-            return None
+            row = self._row(conn, "SELECT * FROM model_training_runs WHERE run_id = ?", (reference_id,))
+            if row is not None:
+                return self._detail_from_phase3(row)
+            raise ResourceNotFoundError(f"Historical training run '{reference_id}' was not found.")
+        finally:
+            conn.close()
+
+    def get_historical_detail(self, reference_type: str, reference_id: str) -> HistoricalRunDetail:
+        clean_id = _safe_component(reference_id)
 
         if reference_type == "training_run":
-            for row in self._phase3_rows():
-                if row.get("run_id") == clean_id:
-                    return self._detail_from_phase3(row)
+            conn = self._connect_required("phase3_smoke.db")
             try:
-                return self.experiment_detail(clean_id)
-            except ResourceNotFoundError:
-                return None
+                row = self._row(conn, "SELECT * FROM model_training_runs WHERE run_id = ?", (clean_id,))
+                if row is not None:
+                    return self._detail_from_phase3(row)
+            finally:
+                conn.close()
+
+            if self._database_path("phase4_smoke.db").is_file():
+                conn4 = self._connect_required("phase4_smoke.db")
+                try:
+                    row4 = self._row(conn4, "SELECT * FROM experiment_runs WHERE experiment_id = ?", (clean_id,))
+                    if row4 is not None:
+                        return self._detail_from_phase4(row4)
+                finally:
+                    conn4.close()
+
+            raise ResourceNotFoundError(f"Historical training run '{reference_id}' was not found.")
 
         if reference_type == "experiment":
-            try:
+            if clean_id == "phase9-final-validation-candidate":
                 return self.experiment_detail(clean_id)
-            except ResourceNotFoundError:
-                pass
+
+            if clean_id.startswith("exp-"):
+                return self.experiment_detail(clean_id)
+
             for comp_summary in self._phase9_comparison_rows():
                 if comp_summary.reference_id == clean_id:
                     return HistoricalRunDetail(
@@ -698,11 +737,27 @@ class HistoricalEvidenceService:
                         provenance=["Read from artifacts/phase9/phase9-final-validation/model_comparison.csv."],
                         error_message=None,
                     )
-            for row in self._phase3_rows():
-                if row.get("run_id") == clean_id:
-                    return self._detail_from_phase3(row)
 
-        return None
+            if self._database_path("phase4_smoke.db").is_file():
+                conn4 = self._connect_required("phase4_smoke.db")
+                try:
+                    row4 = self._row(conn4, "SELECT * FROM experiment_runs WHERE experiment_id = ?", (clean_id,))
+                    if row4 is not None:
+                        return self._detail_from_phase4(row4)
+                finally:
+                    conn4.close()
+            elif self._database_path("phase3_smoke.db").is_file():
+                conn3 = self._connect_required("phase3_smoke.db")
+                try:
+                    row3 = self._row(conn3, "SELECT * FROM model_training_runs WHERE run_id = ?", (clean_id,))
+                    if row3 is not None:
+                        return self._detail_from_phase3(row3)
+                finally:
+                    conn3.close()
+
+            raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
+
+        raise ResourceNotFoundError(f"{reference_type} '{reference_id}' was not found.")
 
     def _phase9_comparison_rows(self) -> list[HistoricalRunSummary]:
         path = self.phase9_root / "model_comparison.csv"
@@ -977,13 +1032,22 @@ class HistoricalEvidenceService:
     def official_test(self) -> OfficialTestEvidenceResponse:
         """Return persisted Phase 10 evidence without opening the raw test CSV."""
 
+        required_files = [
+            (self.phase10_root / "official_test_metrics.json", "official test metrics"),
+            (self.phase10_root / "official_test_calibration.json", "official test calibration"),
+            (self.phase10_root / "official_test_reliability.json", "official test reliability"),
+            (self.phase10_root / "official_test_integrity.json", "official test integrity"),
+            (self.phase10_root / "pre_evaluation_audit.json", "official test pre-evaluation audit"),
+        ]
+        for path, label in required_files:
+            if not path.is_file():
+                raise ArtifactUnavailableError(f"Persisted {label} evidence is unavailable.")
+
         metrics_payload = self._read_json_file(self.phase10_root / "official_test_metrics.json", "official test metrics")
         calibration_payload = self._read_json_file(self.phase10_root / "official_test_calibration.json", "official test calibration")
         reliability_payload = self._read_json_file(self.phase10_root / "official_test_reliability.json", "official test reliability")
         integrity_payload = self._read_json_file(self.phase10_root / "official_test_integrity.json", "official test integrity")
         pre_audit_payload = self._read_json_file(self.phase10_root / "pre_evaluation_audit.json", "official test pre-evaluation audit")
-        if not metrics_payload:
-            raise ArtifactUnavailableError("Persisted official-test evidence is unavailable.")
 
         primary = metrics_payload.get("primary_policy", {})
         if not isinstance(primary, dict):

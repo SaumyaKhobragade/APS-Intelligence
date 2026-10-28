@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { KpiStrip } from "@/components/dashboard/kpi-strip";
 import type { DashboardSnapshot, ModelMetrics } from "@/types";
 
 describe("Dashboard KPI Strip & MetricDisplay (AUDIT-002)", () => {
@@ -76,37 +79,47 @@ describe("Dashboard KPI Strip & MetricDisplay (AUDIT-002)", () => {
     expect(bestModel?.prAuc).toBe(0.8864);
   });
 
-  it("cleans model name and preserves full name for tooltip title", () => {
-    const bestModel = sampleSnapshot.models.reduce((best, model) => (model.prAuc > best.prAuc ? model : best), sampleSnapshot.models[0]);
-    const displayValue = bestModel.modelName.replace(" Regression", "");
-    const tooltipTitle = bestModel.modelName;
+  it("renders KpiStrip HTML with accessible title and truncation classes", () => {
+    const html = renderToString(createElement(KpiStrip, { snapshot: sampleSnapshot }));
 
-    expect(displayValue).toBe("random_forest / original");
-    expect(tooltipTitle).toBe("random_forest / original");
-    // Displays full name as tooltip to ensure accessibility on small viewport truncations
-    expect(tooltipTitle.length).toBeGreaterThan(0);
+    // Renders full name into title attribute for accessible tooltips when truncated
+    expect(html).toContain('title="random_forest / original"');
+    // Renders truncation and minimum width constraint classes to prevent flex overflow
+    expect(html).toContain("truncate");
+    expect(html).toContain("min-w-0");
+    // Displays section header and KPI labels
+    expect(html).toContain("Top validation model");
+    expect(html).toContain("Top validation PR-AUC");
+    expect(html).toContain("Training records");
+    expect(html).toContain("60,000");
+    expect(html).toContain("Validation business cost");
+    expect(html).toContain("362");
   });
 
-  it("handles empty model list gracefully", () => {
+  it("handles empty model list gracefully in rendered HTML", () => {
     const emptySnapshot: DashboardSnapshot = {
       ...sampleSnapshot,
       models: [],
     };
-    const bestModel = emptySnapshot.models.length
-      ? emptySnapshot.models.reduce((best, model) => (model.prAuc > best.prAuc ? model : best), emptySnapshot.models[0])
-      : undefined;
+    const html = renderToString(createElement(KpiStrip, { snapshot: emptySnapshot }));
 
-    const displayValue = bestModel ? bestModel.modelName.replace(" Regression", "") : "—";
-    const tooltipTitle = bestModel ? bestModel.modelName : undefined;
-
-    expect(bestModel).toBeUndefined();
-    expect(displayValue).toBe("—");
-    expect(tooltipTitle).toBeUndefined();
+    // Fallback em-dash rendered without erroneous title attribute
+    expect(html).not.toContain('title="');
+    expect(html).toContain("Top validation model");
+    expect(html).toContain("—");
   });
 
   it("formats validation business cost accurately with illustrative cost assumptions", () => {
     expect(sampleSnapshot.businessImpact?.falsePositiveCost).toBe(1);
     expect(sampleSnapshot.businessImpact?.falseNegativeCost).toBe(10);
     expect(sampleSnapshot.businessImpact?.estimatedCost).toBe(362);
+  });
+
+  it("documents browser layout geometry test limits", () => {
+    // Note: Vitest executes in Node.js without CSS layout calculation or font glyph measurements.
+    // CSS text-overflow ellipsis and geometric element overflow clipping require actual browser rendering engine.
+    // Full visual validation is conducted via headless Edge/Chromium screenshot audits at 390px, 768px, 1280px, and 1440px.
+    const layoutEnginePresent = typeof window !== "undefined" && typeof (window as unknown as { getComputedStyle?: unknown }).getComputedStyle === "function";
+    expect(layoutEnginePresent).toBe(false);
   });
 });

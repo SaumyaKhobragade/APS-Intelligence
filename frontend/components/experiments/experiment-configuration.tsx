@@ -6,6 +6,7 @@ interface ExperimentConfigurationProps {
   configuration: ExperimentConfigurationSnapshot;
   onExport: () => void;
   readOnly?: boolean;
+  referenceType?: "training_run" | "experiment";
 }
 
 function ExperimentConfiguration({ configuration, onExport, readOnly = false }: ExperimentConfigurationProps) {
@@ -18,11 +19,12 @@ function ExperimentConfiguration({ configuration, onExport, readOnly = false }: 
           <h2 id="experiment-configuration-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Review what can be reproduced.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">The snapshot keeps model, dataset, schema, preprocessing, threshold and cost assumptions together. Unavailable fields are not silently filled.</p>
         </div>
-        {readOnly ? (
-          <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence / read-only</span>
-        ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {readOnly ? (
+            <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence</span>
+          ) : null}
           <Button variant="outline" onClick={onExport}><Download aria-hidden="true" className="size-3.5" /> Export configuration JSON</Button>
-        )}
+        </div>
       </div>
       <div className={`mt-8 flex items-start gap-3 border-l-2 pl-4 ${complete ? "border-success" : "border-signal"}`}>
         <ShieldCheck aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${complete ? "text-success" : "text-signal"}`} />

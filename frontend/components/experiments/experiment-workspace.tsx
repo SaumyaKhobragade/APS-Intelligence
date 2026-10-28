@@ -140,10 +140,10 @@ function ExperimentWorkspace() {
           </div>
         </section>
         <ExperimentFilters experiments={experiments} search={search} model={model} strategy={strategy} status={status} type={type} dateFrom={dateFrom} dateTo={dateTo} onSearchChange={(value) => updateFilter(setSearch, value)} onModelChange={(value) => updateFilter(setModel, value)} onStrategyChange={(value) => updateFilter(setStrategy, value)} onStatusChange={(value) => updateFilter(setStatus, value)} onTypeChange={(value) => updateFilter(setType, value)} onDateFromChange={(value) => updateFilter(setDateFrom, value)} onDateToChange={(value) => updateFilter(setDateTo, value)} onReset={resetFilters} />
-        <ExperimentDetails experiment={selected} onExportJson={() => void downloadExperimentJson("experiment", selected.id)} onExportCsv={() => void downloadExperimentCsv("experiment", selected.id)} onExportPdf={() => void downloadExperimentPdf("experiment", selected.id)} />
+        <ExperimentDetails experiment={selected} referenceType={exportRefType} onExportJson={() => void downloadExperimentJson(exportRefType, selected.id)} onExportCsv={() => void downloadExperimentCsv(exportRefType, selected.id)} onExportPdf={() => void downloadExperimentPdf(exportRefType, selected.id)} />
         <ExperimentComparison experiments={experiments} selectedIds={comparisonIds} onSelectionChange={setComparisonIds} />
         <ExperimentTrends experiments={experiments} />
-        <ExperimentConfiguration configuration={selected.details.configurationSnapshot} onExport={() => void downloadExperimentJson("experiment", selected.id)} readOnly={selected.source === "historical"} />
+        <ExperimentConfiguration configuration={selected.details.configurationSnapshot} referenceType={exportRefType} onExport={() => void downloadExperimentJson(exportRefType, selected.id)} readOnly={selected.source === "historical"} />
         {modelOptions.length ? <ExperimentCreation models={modelOptions} onSave={(request) => void saveConfiguration(request)} /> : null}
         <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
           <div>

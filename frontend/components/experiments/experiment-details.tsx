@@ -7,6 +7,7 @@ import type { ExperimentHistoryRecord } from "@/types";
 
 interface ExperimentDetailsProps {
   experiment: ExperimentHistoryRecord;
+  referenceType?: "training_run" | "experiment";
   onExportJson: () => void;
   onExportCsv: () => void;
   onExportPdf: () => void;
@@ -26,16 +27,11 @@ function ExperimentDetails({ experiment, onExportJson, onExportCsv, onExportPdf 
           <h2 id="experiment-details-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Reopen the configuration behind the score.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">The selected record is historical evidence. Missing fields remain explicitly unavailable rather than being inferred.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {historical ? (
-            <Badge variant="neutral">Read-only evidence</Badge>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" onClick={onExportJson}><FileJson aria-hidden="true" className="size-3.5" /> Export JSON</Button>
-              <Button size="sm" variant="outline" onClick={onExportCsv}><Download aria-hidden="true" className="size-3.5" /> Metrics CSV</Button>
-              <Button size="sm" variant="signal" onClick={onExportPdf}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button>
-            </>
-          )}
+        <div className="flex flex-wrap items-center gap-2">
+          {historical ? <Badge variant="neutral">Historical evidence</Badge> : null}
+          <Button size="sm" variant="outline" onClick={onExportJson}><FileJson aria-hidden="true" className="size-3.5" /> Export JSON</Button>
+          <Button size="sm" variant="outline" onClick={onExportCsv}><Download aria-hidden="true" className="size-3.5" /> Metrics CSV</Button>
+          <Button size="sm" variant="signal" onClick={onExportPdf}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button>
         </div>
       </div>
       <div className="mt-8 flex flex-wrap items-center gap-3">

@@ -8,7 +8,12 @@ import json
 import re
 from typing import Any
 
-from app.core.exceptions import InvalidRequestError, ResourceNotFoundError
+from app.core.exceptions import (
+    ArtifactCompatibilityError,
+    ArtifactUnavailableError,
+    InvalidRequestError,
+    ResourceNotFoundError,
+)
 from app.schemas.analytics import ModelComparisonResponse, ThresholdAnalyticsResponse
 from app.services.analytics import AnalyticsService
 from app.services.historical_evidence import HistoricalEvidenceService
@@ -37,6 +42,13 @@ class ReportService:
         self.registry = registry
         self.historical = historical or HistoricalEvidenceService(registry.settings)
 
+    def _is_official_test_available(self, reference_id: str) -> bool:
+        try:
+            evidence = self.historical.official_test()
+            return evidence.candidate_id == reference_id and evidence.metrics is not None
+        except (ArtifactUnavailableError, ArtifactCompatibilityError, ResourceNotFoundError):
+            return False
+
     def _resolve_record(self, reference_type: str, reference_id: str) -> tuple[Any, bool]:
         """Resolve record from active registry, falling back to historical evidence.
 
@@ -45,10 +57,7 @@ class ReportService:
         try:
             return self.registry.detail(reference_type, reference_id), False
         except ResourceNotFoundError:
-            hist = self.historical.get_historical_detail(reference_type, reference_id)
-            if hist is not None:
-                return hist, True
-            raise ResourceNotFoundError(f"{reference_type} '{reference_id}' was not found.")
+            return self.historical.get_historical_detail(reference_type, reference_id), True
 
     def experiment_json(self, reference_type: str, reference_id: str) -> bytes:
         detail, is_historical = self._resolve_record(reference_type, reference_id)
@@ -68,14 +77,14 @@ class ReportService:
         try:
             th = self.historical.thresholds(reference_id)
             threshold_payload = th.model_dump(mode="json")
-        except Exception:
+        except (ResourceNotFoundError, ArtifactUnavailableError):
             threshold_payload = None
 
         payload = {
             "source": "historical_evidence_records",
             "evaluation_scope": "validation",
             "is_historical_evidence": True,
-            "official_test_evaluation_available": reference_id == "phase9-final-validation-candidate",
+            "official_test_evaluation_available": self._is_official_test_available(reference_id),
             "registry": detail.model_dump(mode="json"),
             "threshold_analytics": threshold_payload,
             "provenance": detail.provenance,
@@ -221,10 +230,15 @@ class ReportService:
             try:
                 th = self.historical.thresholds(reference_id)
                 threshold_data = th.model_dump(mode="json")
-            except Exception:
+            except (ResourceNotFoundError, ArtifactUnavailableError):
                 threshold_data = None
 
             val_dict = detail.validation_metrics.model_dump(mode="json") if detail.validation_metrics else {"status": "unavailable"}
+            official_test_str = (
+                "available (Phase 10)"
+                if self._is_official_test_available(detail.reference_id)
+                else "unavailable"
+            )
             sections = [
                 (
                     "APS Intelligence historical experiment report",
@@ -234,7 +248,7 @@ class ReportService:
                         f"Model: {detail.model_name} / {detail.model_version}",
                         f"Dataset fingerprint: {detail.dataset_fingerprint or 'unavailable'}",
                         "Evaluation scope: validation only (historical evidence)",
-                        f"Official APS test evaluation: {'available (Phase 10)' if detail.reference_id == 'phase9-final-validation-candidate' else 'unavailable'}",
+                        f"Official APS test evaluation: {official_test_str}",
                         "Record source: historical evidence database",
                     ],
                 ),

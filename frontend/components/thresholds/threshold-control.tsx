@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, RotateCcw, Target } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, RotateCcw, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -30,43 +30,39 @@ function ThresholdControl({
   const checkpoints = React.useMemo(() => {
     const raw = model.thresholdCurve ?? [];
     if (raw.length === 0) {
-      return [{
-        threshold: model.defaultThreshold,
-        precision: 0,
-        recall: 0,
-        f1Score: 0,
-        falsePositiveCount: 0,
-        falseNegativeCount: 0,
-        truePositiveCount: 0,
-        trueNegativeCount: 0,
-        predictedFailureCount: 0,
-        totalSamples: 0,
-        falsePositiveCost: 0,
-        falseNegativeCost: 0,
-        businessCost: 0,
-        source: "frozen_default",
-        scope: "validation",
-      }];
+      return [];
     }
-    const map = new Map<number, (typeof raw)[0]>();
+    const map = new Map<string, (typeof raw)[0]>();
     for (const pt of raw) {
-      map.set(Number(pt.threshold.toFixed(4)), pt);
+      map.set(pt.threshold.toFixed(4), pt);
     }
     return Array.from(map.values()).sort((a, b) => a.threshold - b.threshold);
-  }, [model.thresholdCurve, model.defaultThreshold]);
+  }, [model.thresholdCurve]);
 
+  // Exact matching against normalized persisted threshold representation
+  const targetKey = threshold.toFixed(4);
   const currentIndex = React.useMemo(() => {
-    const exact = checkpoints.findIndex((pt) => Math.abs(pt.threshold - threshold) < 0.001);
-    if (exact >= 0) return exact;
-    return checkpoints.reduce(
-      (best, pt, i) =>
-        Math.abs(pt.threshold - threshold) < Math.abs(checkpoints[best].threshold - threshold) ? i : best,
-      0,
-    );
-  }, [checkpoints, threshold]);
+    return checkpoints.findIndex((pt) => pt.threshold.toFixed(4) === targetKey);
+  }, [checkpoints, targetKey]);
 
-  const activeCheckpoint = checkpoints[currentIndex] ?? checkpoints[0];
-  const isFrozenPolicy = Math.abs(activeCheckpoint.threshold - model.defaultThreshold) < 0.005;
+  const activeCheckpoint = currentIndex >= 0 ? checkpoints[currentIndex] : null;
+
+  // Exact frozen checkpoint lookup: normalized threshold + scope === "validation"
+  const frozenTargetKey = model.defaultThreshold.toFixed(4);
+  const frozenCheckpoint = React.useMemo(() => {
+    return (
+      checkpoints.find(
+        (pt) => pt.threshold.toFixed(4) === frozenTargetKey && pt.scope === "validation",
+      ) ?? null
+    );
+  }, [checkpoints, frozenTargetKey]);
+
+  const isFrozenPolicy = Boolean(
+    activeCheckpoint &&
+      frozenCheckpoint &&
+      activeCheckpoint.threshold.toFixed(4) === frozenTargetKey &&
+      activeCheckpoint.scope === "validation",
+  );
 
   return (
     <section id="threshold-control" aria-labelledby="threshold-control-heading" className="border-b border-line px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
@@ -76,19 +72,42 @@ function ThresholdControl({
           <h2 id="threshold-control-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Explore persisted checkpoints.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
             {isFrozenPolicy
-              ? "Displaying the frozen Phase 9 evaluation policy (threshold 0.115). All metrics correspond directly to this approved validation checkpoint."
-              : "Exploratory validation checkpoint active. Metrics represent genuine persisted validation evidence for this operating point without modifying the frozen candidate policy."}
+              ? "Displaying the frozen Phase 9 evaluation policy (threshold 0.115). All metrics correspond directly to this frozen external validation checkpoint."
+              : activeCheckpoint
+                ? `Exploratory checkpoint active (threshold ${activeCheckpoint.threshold.toFixed(3)}). Metrics represent persisted ${activeCheckpoint.scope === "validation" ? "external validation" : "internal policy selection"} evidence for this operating point without modifying the frozen evaluation policy.`
+                : `Selected threshold (${threshold.toFixed(3)}) does not correspond to an exact persisted checkpoint. Nearest-point fallback is disabled.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isFrozenPolicy ? "success" : "signal"}>
-            {isFrozenPolicy ? <CheckCircle2 aria-hidden="true" className="size-3" /> : <Target aria-hidden="true" className="size-3" />}
-            {isFrozenPolicy ? "Frozen policy (0.115)" : `Exploratory checkpoint (${activeCheckpoint.threshold.toFixed(3)})`}
-          </Badge>
+          {isFrozenPolicy ? (
+            <Badge variant="success">
+              <CheckCircle2 aria-hidden="true" className="size-3" />
+              Frozen evaluation policy (0.115)
+            </Badge>
+          ) : activeCheckpoint ? (
+            <Badge variant="signal">
+              <Target aria-hidden="true" className="size-3" />
+              Exploratory checkpoint ({activeCheckpoint.threshold.toFixed(3)})
+            </Badge>
+          ) : (
+            <Badge variant="warning">
+              <AlertCircle aria-hidden="true" className="size-3" />
+              Non-persisted threshold
+            </Badge>
+          )}
+          {activeCheckpoint ? (
+            <Badge variant={activeCheckpoint.scope === "validation" ? "neutral" : "dark"}>
+              Scope: {activeCheckpoint.scope === "validation" ? "External validation" : "Internal policy selection"}
+            </Badge>
+          ) : null}
           {!isFrozenPolicy ? (
-            <Button size="sm" variant="outline" onClick={onReset}>
-              <RotateCcw aria-hidden="true" className="size-3" /> Reset to frozen ({model.defaultThreshold.toFixed(3)})
-            </Button>
+            frozenCheckpoint ? (
+              <Button size="sm" variant="outline" onClick={onReset}>
+                <RotateCcw aria-hidden="true" className="size-3" /> Reset to frozen ({model.defaultThreshold.toFixed(3)})
+              </Button>
+            ) : (
+              <Badge variant="neutral">Frozen policy unavailable</Badge>
+            )
           ) : null}
         </div>
       </div>
@@ -97,22 +116,35 @@ function ThresholdControl({
         <div className="border-t border-charcoal bg-charcoal p-6 text-white sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Selected checkpoint threshold</p>
-              <p className="mt-4 font-display text-6xl leading-none tracking-[-0.08em] text-signal">{activeCheckpoint.threshold.toFixed(3)}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Selected checkpoint threshold</p>
+                {activeCheckpoint ? (
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-silver/60">
+                    [{activeCheckpoint.scope === "validation" ? "External validation" : "Internal policy selection"}]
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-4 font-display text-6xl leading-none tracking-[-0.08em] text-signal">
+                {activeCheckpoint ? activeCheckpoint.threshold.toFixed(3) : threshold.toFixed(3)}
+              </p>
             </div>
             {isFrozenPolicy ? (
-              <Badge variant="dark">Approved frozen policy</Badge>
-            ) : (
+              <Badge variant="dark">Frozen evaluation policy</Badge>
+            ) : frozenCheckpoint ? (
               <Button size="sm" variant="ghost" className="text-silver hover:bg-white/10 hover:text-white" onClick={onReset}>
                 <RotateCcw aria-hidden="true" className="size-3.5" /> Reset to frozen
               </Button>
+            ) : (
+              <span className="font-mono text-[10px] uppercase tracking-wider text-silver/50">Frozen policy unavailable</span>
             )}
           </div>
 
           <div className="mt-8">
             <div className="flex items-center justify-between text-xs text-silver/80">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em]">Discrete checkpoint stepper</span>
-              <span className="font-mono text-[10px]">Checkpoint {currentIndex + 1} of {checkpoints.length}</span>
+              <span className="font-mono text-[10px]">
+                {currentIndex >= 0 ? `Checkpoint ${currentIndex + 1} of ${checkpoints.length}` : "No exact checkpoint match"}
+              </span>
             </div>
             <div className="mt-3 flex items-center gap-3">
               <Button
@@ -121,8 +153,10 @@ function ThresholdControl({
                 variant="ghost"
                 className="text-silver hover:bg-white/10 hover:text-white disabled:opacity-30"
                 disabled={readOnly || currentIndex <= 0}
-                onClick={() => onThresholdChange(checkpoints[currentIndex - 1].threshold)}
-                aria-label="Previous validation checkpoint"
+                onClick={() => {
+                  if (currentIndex > 0) onThresholdChange(checkpoints[currentIndex - 1].threshold);
+                }}
+                aria-label="Previous persisted checkpoint"
               >
                 <ChevronLeft aria-hidden="true" className="size-4" />
               </Button>
@@ -132,36 +166,42 @@ function ThresholdControl({
                 min="0"
                 max={Math.max(0, checkpoints.length - 1)}
                 step="1"
-                value={currentIndex}
+                value={Math.max(0, currentIndex)}
                 onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                   const targetPt = checkpoints[Number(event.target.value)];
                   if (targetPt) onThresholdChange(targetPt.threshold);
                 }}
                 disabled={readOnly || checkpoints.length <= 1}
                 className="h-2 flex-1 cursor-pointer accent-signal disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Discrete validation checkpoint slider"
+                aria-label="Discrete persisted checkpoint slider"
               />
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
                 className="text-silver hover:bg-white/10 hover:text-white disabled:opacity-30"
-                disabled={readOnly || currentIndex >= checkpoints.length - 1}
-                onClick={() => onThresholdChange(checkpoints[currentIndex + 1].threshold)}
-                aria-label="Next validation checkpoint"
+                disabled={readOnly || currentIndex < 0 || currentIndex >= checkpoints.length - 1}
+                onClick={() => {
+                  if (currentIndex >= 0 && currentIndex < checkpoints.length - 1) {
+                    onThresholdChange(checkpoints[currentIndex + 1].threshold);
+                  }
+                }}
+                aria-label="Next persisted checkpoint"
               >
                 <ChevronRight aria-hidden="true" className="size-4" />
               </Button>
             </div>
-            <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-silver/60">
-              <span>{checkpoints[0].threshold.toFixed(3)} / lowest</span>
-              <span>{checkpoints[checkpoints.length - 1].threshold.toFixed(3)} / highest</span>
-            </div>
+            {checkpoints.length > 0 ? (
+              <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-silver/60">
+                <span>{checkpoints[0].threshold.toFixed(3)} / lowest</span>
+                <span>{checkpoints[checkpoints.length - 1].threshold.toFixed(3)} / highest</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-8 grid gap-4 border-t border-white/15 pt-5 sm:grid-cols-3">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver/65">Default (Frozen)</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver/65">Frozen policy</p>
               <p className="mt-2 font-mono text-lg">{model.defaultThreshold.toFixed(3)}</p>
             </div>
             <div>
@@ -182,18 +222,20 @@ function ThresholdControl({
             </label>
             <Select
               id="threshold-checkpoint-select"
-              value={String(activeCheckpoint.threshold)}
+              value={activeCheckpoint ? activeCheckpoint.threshold.toFixed(4) : ""}
               onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
-                const val = Number(event.target.value);
-                const match = checkpoints.find((pt) => Math.abs(pt.threshold - val) < 0.0001);
+                const valKey = event.target.value;
+                const match = checkpoints.find((pt) => pt.threshold.toFixed(4) === valKey);
                 if (match) onThresholdChange(match.threshold);
               }}
-              disabled={readOnly}
+              disabled={readOnly || checkpoints.length === 0}
               options={checkpoints.map((pt) => {
-                const isFrozen = Math.abs(pt.threshold - model.defaultThreshold) < 0.005;
+                const isPtFrozen = pt.threshold.toFixed(4) === frozenTargetKey && pt.scope === "validation";
+                const scopeTag = pt.scope === "validation" ? "[External validation]" : "[Internal policy selection]";
+                const policyTag = isPtFrozen ? " (Frozen Evaluation Policy)" : "";
                 return {
-                  value: String(pt.threshold),
-                  label: `Threshold ${pt.threshold.toFixed(3)}${isFrozen ? " (Frozen Policy)" : ""} — Recall ${(pt.recall * 100).toFixed(1)}%, Cost ${pt.businessCost.toFixed(0)}`,
+                  value: pt.threshold.toFixed(4),
+                  label: `Threshold ${pt.threshold.toFixed(3)}${policyTag} ${scopeTag} — Recall ${(pt.recall * 100).toFixed(1)}%, Cost ${pt.businessCost.toFixed(0)}`,
                 };
               })}
             />
@@ -203,7 +245,11 @@ function ThresholdControl({
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Recommended operating checkpoints</p>
             <div className="mt-4 divide-y divide-line">
               {[recommendations.minimumCost, recommendations.maximumF1, recommendations.default].map((recommendation) => {
-                const isSelected = Math.abs(activeCheckpoint.threshold - recommendation.metrics.threshold) < 0.005;
+                const isSelected = Boolean(
+                  activeCheckpoint &&
+                    activeCheckpoint.threshold.toFixed(4) === recommendation.metrics.threshold.toFixed(4) &&
+                    (!recommendation.scope || activeCheckpoint.scope === recommendation.scope),
+                );
                 return (
                   <button
                     key={recommendation.kind}
@@ -212,7 +258,14 @@ function ThresholdControl({
                     onClick={() => onSelectRecommendation(recommendation)}
                   >
                     <span>
-                      <span className="block text-sm font-medium">{recommendation.label}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{recommendation.label}</span>
+                        {recommendation.scopeLabel ? (
+                          <span className="font-mono text-[9px] uppercase tracking-wider text-muted">
+                            [{recommendation.scopeLabel}]
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="mt-1 block text-xs leading-5 text-muted">{recommendation.explanation}</span>
                     </span>
                     <span className="shrink-0 font-mono text-sm">{recommendation.metrics.threshold.toFixed(3)}</span>
@@ -224,7 +277,7 @@ function ThresholdControl({
         </div>
       </div>
       <p className="mt-5 text-xs leading-5 text-muted">
-        Exploration is locked to genuine persisted validation checkpoints. Metrics represent offline validation evidence and are not continuously recomputed. Candidate operational decision policy remains strictly frozen at 0.115.
+        Exploration is locked to genuine persisted checkpoints. Displayed metrics reflect their documented evaluation scope (external validation or internal policy selection) without modifying the frozen evaluation policy at 0.115. Candidate model is not production approved (promotions: 0).
       </p>
     </section>
   );

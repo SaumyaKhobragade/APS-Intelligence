@@ -262,9 +262,13 @@ export interface ThresholdMetrics {
   businessCost: number;
 }
 
+export type ThresholdEvidenceScope = "validation" | "internal_selection";
+
 export interface ThresholdCurvePoint extends ThresholdMetrics {
   source: "validation_checkpoint" | "internal_selection";
-  scope?: "validation" | "internal_selection";
+  scope: ThresholdEvidenceScope;
+  scopeLabel?: string;
+  sourceReference?: string;
 }
 
 export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "completed" | "insufficient_sample" | "failed" | "not_available";
@@ -281,6 +285,8 @@ export interface ThresholdRecommendation {
   label: string;
   explanation: string;
   metrics: ThresholdMetrics;
+  scope?: ThresholdEvidenceScope;
+  scopeLabel?: string;
 }
 
 export interface ThresholdModelEvaluation {

@@ -31,28 +31,62 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
     falsePositive: validation.false_positive_cost ?? 1,
     falseNegative: validation.false_negative_cost ?? 10,
   };
-  const frozen: ThresholdCurvePoint = { ...metricToThresholdMetrics(validation, costs), source: "validation_checkpoint", scope: "validation" };
+  const frozen: ThresholdCurvePoint = {
+    ...metricToThresholdMetrics(validation, costs),
+    source: "validation_checkpoint",
+    scope: "validation",
+    scopeLabel: "External validation / frozen candidate",
+    sourceReference: validation.source_reference,
+  };
   const internalPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
-  const pointsMap = new Map<number, ThresholdCurvePoint>();
+  const pointsMap = new Map<string, ThresholdCurvePoint>();
   for (const pt of internalPoints) {
-    pointsMap.set(Number(pt.threshold.toFixed(4)), pt);
+    pointsMap.set(pt.threshold.toFixed(4), pt);
   }
-  pointsMap.set(Number(frozen.threshold.toFixed(4)), frozen);
+  pointsMap.set(frozen.threshold.toFixed(4), frozen);
   const sortedCurve = Array.from(pointsMap.values()).sort((a, b) => a.threshold - b.threshold);
-  const maxF1 = sortedCurve.reduce((best, current) => current.f1Score > best.f1Score ? current : best, sortedCurve[0] ?? frozen);
-  const minimumCost = recommendation("minimum_cost", "Frozen minimum-cost threshold / external validation", frozen, "The frozen threshold was selected by minimum illustrative cost on the internal OOF policy subset and assessed on external validation.");
-  const maximumF1 = recommendation("maximum_f1", "Internal maximum-F1 comparison", maxF1, "Persisted internal threshold-selection evidence; not a replacement for the frozen policy.");
-  const defaultRecommendation = recommendation("default", "Frozen candidate operating point", frozen, "The Phase 9 candidate is preserved at its frozen evaluation threshold (0.115).");
+  const internalMaxF1 = internalPoints.reduce(
+    (best, current) => (current.f1Score > best.f1Score ? current : best),
+    internalPoints[0] ?? frozen,
+  );
+  const minimumCost = recommendation(
+    "minimum_cost",
+    "Frozen minimum-cost threshold / external validation",
+    frozen,
+    "The frozen threshold was selected by minimum illustrative cost on the internal OOF policy subset and assessed on external validation.",
+    "validation",
+    "External validation",
+  );
+  const maximumF1 = recommendation(
+    "maximum_f1",
+    "Internal maximum-F1 comparison",
+    internalMaxF1,
+    "Persisted internal threshold-selection evidence (OOF policy tuning); not an external validation point or candidate replacement.",
+    "internal_selection",
+    "Internal policy selection",
+  );
+  const defaultRecommendation = recommendation(
+    "default",
+    "Frozen candidate operating point",
+    frozen,
+    "The Phase 9 candidate is preserved at its frozen evaluation threshold (0.115).",
+    "validation",
+    "External validation",
+  );
   const calibrationCurve: CalibrationPoint[] = calibration.reliability_curve.flatMap((point) => {
     const predicted = point.predicted_probability;
     const observed = point.observed_failure_rate;
     const count = point.sample_count;
-    return typeof predicted === "number" && typeof observed === "number" && typeof count === "number" ? [{
-      binLabel: String(point.bin_label ?? "bin"),
-      predictedProbability: predicted,
-      observedFailureRate: observed,
-      sampleCount: count,
-    }] : [];
+    return typeof predicted === "number" && typeof observed === "number" && typeof count === "number"
+      ? [
+          {
+            binLabel: String(point.bin_label ?? "bin"),
+            predictedProbability: predicted,
+            observedFailureRate: observed,
+            sampleCount: count,
+          },
+        ]
+      : [];
   });
   const model: ThresholdModelEvaluation = {
     modelId: `experiment:${CANDIDATE_ID}`,
@@ -96,10 +130,16 @@ function metricToThresholdMetrics(metric: BackendHistoricalMetric, costs: CostWe
     truePositiveCount: matrix?.true_positive ?? 0,
     trueNegativeCount: matrix?.true_negative ?? 0,
     predictedFailureCount: (matrix?.false_positive ?? 0) + (matrix?.true_positive ?? 0),
-    totalSamples: (matrix?.false_positive ?? 0) + (matrix?.false_negative ?? 0) + (matrix?.true_positive ?? 0) + (matrix?.true_negative ?? 0),
+    totalSamples:
+      (matrix?.false_positive ?? 0) +
+      (matrix?.false_negative ?? 0) +
+      (matrix?.true_positive ?? 0) +
+      (matrix?.true_negative ?? 0),
     falsePositiveCost: (matrix?.false_positive ?? 0) * costs.falsePositive,
     falseNegativeCost: (matrix?.false_negative ?? 0) * costs.falseNegative,
-    businessCost: metric.estimated_business_cost ?? ((matrix?.false_positive ?? 0) * costs.falsePositive + (matrix?.false_negative ?? 0) * costs.falseNegative),
+    businessCost:
+      metric.estimated_business_cost ??
+      (matrix?.false_positive ?? 0) * costs.falsePositive + (matrix?.false_negative ?? 0) * costs.falseNegative,
   };
 }
 
@@ -124,6 +164,8 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
     businessCost: point.business_cost ?? (falsePositive * costs.falsePositive + falseNegative * costs.falseNegative),
     source: "internal_selection",
     scope: "internal_selection",
+    scopeLabel: "Internal policy selection (OOF CV)",
+    sourceReference: point.source_reference,
   };
 }
 
@@ -132,6 +174,8 @@ function recommendation(
   label: string,
   metrics: ThresholdMetrics,
   explanation: string,
+  scope?: "validation" | "internal_selection",
+  scopeLabel?: string,
 ): ThresholdRecommendation {
-  return { kind, label, metrics, explanation };
+  return { kind, label, metrics, explanation, scope, scopeLabel };
 }

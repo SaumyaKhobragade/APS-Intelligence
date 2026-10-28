@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowDown, RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { BusinessCostBreakdown } from "@/components/thresholds/business-cost-breakdown";
 import { CalibrationChart } from "@/components/thresholds/calibration-chart";
@@ -16,30 +16,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { fetchThresholdSnapshot } from "@/services/threshold-service";
-import type { CostWeights, ThresholdMetrics as ThresholdMetricsData, ThresholdModelEvaluation, ThresholdOptimizationSnapshot, ThresholdRecommendation } from "@/types";
+import type { CostWeights, ThresholdCurvePoint, ThresholdModelEvaluation, ThresholdOptimizationSnapshot, ThresholdRecommendation } from "@/types";
 
-function getCheckpointMetrics(model: ThresholdModelEvaluation, targetThreshold: number): ThresholdMetricsData {
+function getExactCheckpoint(model: ThresholdModelEvaluation, targetThreshold: number): ThresholdCurvePoint | null {
   const points = model.thresholdCurve;
   if (!points || points.length === 0) {
-    return {
-      threshold: targetThreshold,
-      precision: 0,
-      recall: 0,
-      f1Score: 0,
-      falsePositiveCount: 0,
-      falseNegativeCount: 0,
-      truePositiveCount: 0,
-      trueNegativeCount: 0,
-      predictedFailureCount: 0,
-      totalSamples: 0,
-      falsePositiveCost: 0,
-      falseNegativeCost: 0,
-      businessCost: 0,
-    };
+    return null;
   }
-  const exact = points.find((pt) => Math.abs(pt.threshold - targetThreshold) < 0.001);
-  if (exact) return exact;
-  return points.reduce((closest, point) => Math.abs(point.threshold - targetThreshold) < Math.abs(closest.threshold - targetThreshold) ? point : closest, points[0]);
+  const targetKey = targetThreshold.toFixed(4);
+  return points.find((pt) => pt.threshold.toFixed(4) === targetKey) ?? null;
 }
 
 function ThresholdWorkspace() {
@@ -90,8 +75,8 @@ function ThresholdWorkspace() {
   }
 
   const costWeights: CostWeights = selectedModel.costWeights ?? snapshot.costWeights;
-  const currentMetrics = getCheckpointMetrics(selectedModel, threshold);
-  const defaultMetrics = getCheckpointMetrics(selectedModel, selectedModel.defaultThreshold);
+  const currentCheckpoint = getExactCheckpoint(selectedModel, threshold);
+  const frozenCheckpoint = getExactCheckpoint(selectedModel, selectedModel.defaultThreshold);
 
   function selectModel(modelId: string) {
     const model = snapshot!.models.find((candidate) => candidate.modelId === modelId);
@@ -130,8 +115,10 @@ function ThresholdWorkspace() {
           <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Model selection</p>
-              <h2 className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Inspect persisted policy analytics.</h2>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Thresholds and calibration below reflect offline validation evidence. Candidate evaluation policy is frozen at threshold 0.115.</p>
+              <h2 id="model-selection-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Inspect persisted policy analytics.</h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
+                Thresholds and calibration below reflect offline validation evidence. Candidate evaluation policy is frozen at threshold 0.115. Candidate is not production approved.
+              </p>
             </div>
             <Badge variant="signal">{snapshot.models.length} persisted reference{snapshot.models.length === 1 ? "" : "s"}</Badge>
           </div>
@@ -153,21 +140,51 @@ function ThresholdWorkspace() {
 
         <ThresholdControl
           model={selectedModel}
-          threshold={currentMetrics.threshold}
+          threshold={threshold}
           recommendations={selectedModel.recommendations}
           onThresholdChange={setThreshold}
           onReset={() => setThreshold(selectedModel.defaultThreshold)}
           onSelectRecommendation={selectRecommendation}
           readOnly={false}
         />
-        <ThresholdMetrics metrics={currentMetrics} />
-        <ThresholdConfusionMatrix metrics={currentMetrics} modelName={selectedModel.modelName} />
-        <BusinessCostBreakdown metrics={currentMetrics} defaultMetrics={defaultMetrics} costWeights={costWeights} onCostWeightsChange={() => undefined} readOnly />
-        <ThresholdPerformanceChart model={selectedModel} selectedThreshold={currentMetrics.threshold} />
-        <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={currentMetrics.threshold} onSelect={selectRecommendation} />
-        <ModelThresholdComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={selectModel} />
-        <CalibrationChart model={selectedModel} />
-        <OperationalRecommendation model={selectedModel} metrics={currentMetrics} />
+
+        {!currentCheckpoint ? (
+          <section className="border-b border-line bg-surface px-5 py-8 sm:px-8 lg:px-10">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <AlertCircle aria-hidden="true" className="size-4 text-signal" />
+                  <p className="font-mono text-xs uppercase tracking-wider font-semibold text-signal">
+                    Non-persisted threshold: {threshold.toFixed(3)}
+                  </p>
+                </div>
+                <p className="mt-2 text-sm text-ink max-w-2xl leading-6">
+                  Selected threshold does not match any exact persisted checkpoint. Nearest-point fallback is disabled to preserve scientific evidence integrity.
+                </p>
+              </div>
+              {frozenCheckpoint ? (
+                <Button size="sm" onClick={() => setThreshold(selectedModel.defaultThreshold)}>
+                  Return to frozen evaluation policy ({selectedModel.defaultThreshold.toFixed(3)})
+                </Button>
+              ) : (
+                <Badge variant="neutral">Frozen evaluation policy unavailable</Badge>
+              )}
+            </div>
+          </section>
+        ) : (
+          <>
+            <ThresholdMetrics metrics={currentCheckpoint} scope={currentCheckpoint.scope} scopeLabel={currentCheckpoint.scopeLabel} />
+            <ThresholdConfusionMatrix metrics={currentCheckpoint} modelName={selectedModel.modelName} scope={currentCheckpoint.scope} scopeLabel={currentCheckpoint.scopeLabel} />
+            {frozenCheckpoint ? (
+              <BusinessCostBreakdown metrics={currentCheckpoint} defaultMetrics={frozenCheckpoint} costWeights={costWeights} onCostWeightsChange={() => undefined} readOnly />
+            ) : null}
+            <ThresholdPerformanceChart model={selectedModel} selectedThreshold={currentCheckpoint.threshold} />
+            <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={currentCheckpoint.threshold} selectedScope={currentCheckpoint.scope} onSelect={selectRecommendation} />
+            <ModelThresholdComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={selectModel} />
+            <CalibrationChart model={selectedModel} />
+            <OperationalRecommendation model={selectedModel} metrics={currentCheckpoint} scope={currentCheckpoint.scope} />
+          </>
+        )}
 
         <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
           <div>

@@ -54,6 +54,7 @@ export type {
   PredictionStatus,
   SensorFeatureDefinition,
   ThresholdCurvePoint,
+  ThresholdEvidenceScope,
   ThresholdMetrics,
   ThresholdModelEvaluation,
   ThresholdOptimizationSnapshot,

@@ -640,6 +640,8 @@ export interface BackendHistoricalRunSummary {
   cross_validation?: BackendHistoricalCrossValidation | null;
   artifact_integrity_status: string;
   artifact_available: boolean;
+  feature_importance_available?: boolean;
+  hyperparameters?: Record<string, unknown>;
   source_database: string;
   candidate_label?: string | null;
   curves?: Record<string, unknown> | null;

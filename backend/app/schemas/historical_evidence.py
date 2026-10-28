@@ -97,6 +97,8 @@ class HistoricalRunSummary(BaseModel):
     cross_validation: HistoricalCrossValidation | None = None
     artifact_integrity_status: str
     artifact_available: bool
+    feature_importance_available: bool = False
+    hyperparameters: dict[str, Any] = Field(default_factory=dict)
     source_database: str
     candidate_label: str | None = None
     curves: dict[str, Any] | list[Any] | None = None

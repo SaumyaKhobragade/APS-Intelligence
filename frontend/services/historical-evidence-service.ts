@@ -140,7 +140,7 @@ export function mapHistoricalSummaryToModel(summary: BackendHistoricalRunSummary
     evaluationStatus: summary.status === "failed" ? "not_available" : "completed",
     trainingDataset: summary.dataset_id,
     evaluationDataset: `${summary.dataset_id} / ${metric.scope}`,
-    hyperparameters: {},
+    hyperparameters: summary.hyperparameters ? scalarRecord(summary.hyperparameters) : {},
     prAuc: metric.pr_auc,
     rocAuc: numberOrUndefined(metric.roc_auc),
     precision: metric.precision ?? 0,
@@ -168,6 +168,7 @@ export function mapHistoricalSummaryToModel(summary: BackendHistoricalRunSummary
     sourceDatabase: summary.source_database,
     strategy: summary.imbalance_strategy ?? undefined,
     curvesAvailable: curvePoints(summary.curves).length > 0 || mapRocCurve(summary.curves).length > 0,
+    featureImportanceAvailable: Boolean(summary.feature_importance_available),
   };
 }
 
@@ -180,8 +181,9 @@ export function mapHistoricalValidationToModel(response: BackendHistoricalValida
   if (!model) return null;
   return {
     ...model,
-    hyperparameters: (() => { const hp = (response.reference as unknown as { hyperparameters?: Record<string, unknown> })?.hyperparameters; return hp ? (scalarRecord(hp) ?? {}) : {}; })(),
+    hyperparameters: (() => { const hp = (response.reference as unknown as { hyperparameters?: Record<string, unknown> })?.hyperparameters; return hp && Object.keys(hp).length > 0 ? (scalarRecord(hp) ?? {}) : model.hyperparameters; })(),
     featureImportance: featureImportance(response.feature_importance),
+    featureImportanceAvailable: (response.feature_importance && response.feature_importance.length > 0) || model.featureImportanceAvailable,
   };
 }
 
@@ -270,7 +272,7 @@ export function mapHistoricalSummaryToExperiment(summary: BackendHistoricalRunSu
   return mapHistoricalDetailToExperiment({
     ...summary,
     configuration: {},
-    hyperparameters: {},
+    hyperparameters: summary.hyperparameters ? scalarRecord(summary.hyperparameters) : {},
     search_results: [],
     feature_importance: [],
     metrics: summary.validation_metrics ? [summary.validation_metrics] : [],

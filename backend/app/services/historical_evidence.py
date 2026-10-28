@@ -382,6 +382,8 @@ class HistoricalEvidenceService:
             validation_metrics=_metric(metrics, scope="validation", label="Validation / configured threshold", source_reference="phase3_smoke.db") if metrics else None,
             artifact_integrity_status=row.get("artifact_integrity_status") or "not_recorded",
             artifact_available=all(item.exists for item in artifacts),
+            feature_importance_available=False,
+            hyperparameters=_dict(row.get("hyperparameters_json")),
             source_database="data/phase3_smoke.db",
             training_duration_seconds=_number(row.get("training_duration_seconds")),
         )
@@ -423,6 +425,8 @@ class HistoricalEvidenceService:
             cross_validation=self._cv_from_search(search, "phase4_smoke.db") if search else None,
             artifact_integrity_status=row.get("artifact_integrity_status") or "not_recorded",
             artifact_available=all(item.exists for item in artifacts) if row["status"] == "completed" else False,
+            feature_importance_available=any(item.logical_name == "feature_importance" and item.exists for item in artifacts) if row["status"] == "completed" else False,
+            hyperparameters=_dict(row.get("best_parameters_json")),
             source_database="data/phase4_smoke.db",
             curves=_dict(row.get("curves_json")) or None,
             training_duration_seconds=_number(row.get("training_duration_seconds")),
@@ -518,6 +522,8 @@ class HistoricalEvidenceService:
             ) if cv_candidate else None,
             artifact_integrity_status=row.get("artifact_integrity_status") or "verified",
             artifact_available=all(item.exists for item in artifacts),
+            feature_importance_available=any(item.logical_name == "feature_importance" and item.exists for item in artifacts),
+            hyperparameters=_dict(row.get("best_parameters_json")),
             source_database="data/phase9_validation.db",
             candidate_label="Final validation candidate — not production approved",
             curves=_dict(row.get("curves_json")) or None,
@@ -603,7 +609,6 @@ class HistoricalEvidenceService:
         return HistoricalRunDetail(
             **summary.model_dump(),
             configuration=_dict(row.get("preprocessing_configuration_json")),
-            hyperparameters=_dict(row.get("hyperparameters_json")),
             metrics=[summary.validation_metrics] if summary.validation_metrics else [],
             artifacts=artifacts,
             availability=[self._availability("artifacts", artifacts)],
@@ -633,7 +638,6 @@ class HistoricalEvidenceService:
         return HistoricalRunDetail(
             **summary.model_dump(),
             configuration=_dict(row.get("configuration_json")),
-            hyperparameters=_dict(row.get("best_parameters_json")),
             search_results=_list(row.get("search_results_json")),
             feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
             metrics=[summary.validation_metrics] if summary.validation_metrics else [],
@@ -658,7 +662,6 @@ class HistoricalEvidenceService:
                     return HistoricalRunDetail(
                         **summary.model_dump(),
                         configuration=_dict(row.get("configuration_json")),
-                        hyperparameters=_dict(row.get("best_parameters_json")),
                         search_results=_list(row.get("search_results_json")),
                         feature_importance=[item for item in _list(row.get("feature_importance_json")) if isinstance(item, dict)],
                         metrics=[_metric(frozen, scope="validation", label="External validation / frozen threshold 0.115", source_reference="artifacts/phase9/phase9-final-validation/validation_metrics.json")],
@@ -674,6 +677,39 @@ class HistoricalEvidenceService:
                 raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
             finally:
                 conn9.close()
+
+        if reference_id.startswith("phase9-"):
+            for summary_item in self._phase9_comparison_rows():
+                if summary_item.reference_id == reference_id:
+                    return HistoricalRunDetail(
+                        **summary_item.model_dump(),
+                        configuration={
+                            "preprocessing_strategy": summary_item.preprocessing_strategy,
+                            "imbalance_strategy": summary_item.imbalance_strategy,
+                        },
+                        search_results=[],
+                        feature_importance=[],
+                        metrics=[summary_item.validation_metrics] if summary_item.validation_metrics else [],
+                        artifacts=[],
+                        availability=[
+                            HistoricalAvailability(
+                                name="artifacts",
+                                status="unavailable",
+                                message="Serialized pipeline artifacts were not retained for non-candidate comparison rows.",
+                            ),
+                            HistoricalAvailability(
+                                name="feature_importance",
+                                status="unavailable",
+                                message="Feature importance artifact is not available for this comparison summary row.",
+                            ),
+                        ],
+                        provenance=[
+                            "Read from artifacts/phase9/phase9-final-validation/model_comparison.csv.",
+                            "Evaluated on frozen validation split at threshold 0.5.",
+                            "Historical summary record; individual model binaries not retained.",
+                        ],
+                        error_message=None,
+                    )
 
         conn4 = self._connect_required("phase4_smoke.db")
         try:
@@ -819,7 +855,9 @@ class HistoricalEvidenceService:
                             source_reference="artifacts/phase9/phase9-final-validation/model_comparison.csv",
                         ),
                         artifact_integrity_status="verified" if item.get("selected") == "True" else "not_recorded",
-                        artifact_available=True,
+                        artifact_available=False,
+                        feature_importance_available=False,
+                        hyperparameters=hyperparameters,
                         source_database="artifacts/phase9/phase9-final-validation/model_comparison.csv",
                         candidate_label="Final validation candidate — not production approved" if item.get("selected") == "True" else None,
                         curves=curves or None,

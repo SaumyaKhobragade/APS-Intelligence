@@ -715,6 +715,8 @@ export interface BackendHistoricalThresholdPoint {
   true_negative?: number | null;
   business_cost?: number | null;
   source_reference: string;
+  scope?: "validation" | "internal_selection" | null;
+  scope_label?: string | null;
 }
 
 export interface BackendHistoricalThresholdResponse {
@@ -728,6 +730,7 @@ export interface BackendHistoricalThresholdResponse {
   selection_scope: string;
   validation?: BackendHistoricalMetric | null;
   threshold_points: BackendHistoricalThresholdPoint[];
+  internal_points?: BackendHistoricalThresholdPoint[];
   calibration_metrics: Record<string, number | null>;
   artifacts: BackendHistoricalArtifact[];
   availability: BackendHistoricalAvailability[];

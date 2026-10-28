@@ -18,7 +18,10 @@ import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { fetchThresholdSnapshot } from "@/services/threshold-service";
 import type { CostWeights, ThresholdCurvePoint, ThresholdModelEvaluation, ThresholdOptimizationSnapshot, ThresholdRecommendation } from "@/types";
 
-function getExactCheckpoint(model: ThresholdModelEvaluation, targetThreshold: number): ThresholdCurvePoint | null {
+function getExactCheckpoint(model: ThresholdModelEvaluation | undefined, targetThreshold: number): ThresholdCurvePoint | null {
+  if (!model) {
+    return null;
+  }
   const points = model.thresholdCurve;
   if (!points || points.length === 0) {
     return null;
@@ -52,7 +55,41 @@ function ThresholdWorkspace() {
   }, []);
 
   React.useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const [customCostWeights, setCustomCostWeights] = React.useState<CostWeights | null>(null);
+
   const selectedModel = snapshot?.models.find((model) => model.modelId === selectedModelId) ?? snapshot?.models[0];
+  const costWeights: CostWeights = React.useMemo(() => {
+    return customCostWeights ?? selectedModel?.costWeights ?? snapshot?.costWeights ?? { falsePositive: 1, falseNegative: 10 };
+  }, [customCostWeights, selectedModel?.costWeights, snapshot?.costWeights]);
+
+  const rawCheckpoint = getExactCheckpoint(selectedModel, threshold);
+  const rawFrozen = selectedModel ? getExactCheckpoint(selectedModel, selectedModel.defaultThreshold) : null;
+
+  const currentCheckpoint = React.useMemo(() => {
+    if (!rawCheckpoint) return null;
+    if (!customCostWeights) return rawCheckpoint;
+    const fpCost = rawCheckpoint.falsePositiveCount * costWeights.falsePositive;
+    const fnCost = rawCheckpoint.falseNegativeCount * costWeights.falseNegative;
+    return {
+      ...rawCheckpoint,
+      falsePositiveCost: fpCost,
+      falseNegativeCost: fnCost,
+      businessCost: fpCost + fnCost,
+    };
+  }, [rawCheckpoint, customCostWeights, costWeights]);
+
+  const frozenCheckpoint = React.useMemo(() => {
+    if (!rawFrozen) return null;
+    if (!customCostWeights) return rawFrozen;
+    const fpCost = rawFrozen.falsePositiveCount * costWeights.falsePositive;
+    const fnCost = rawFrozen.falseNegativeCount * costWeights.falseNegative;
+    return {
+      ...rawFrozen,
+      falsePositiveCost: fpCost,
+      falseNegativeCost: fnCost,
+      businessCost: fpCost + fnCost,
+    };
+  }, [rawFrozen, customCostWeights, costWeights]);
 
   if (!isLoading && (error || !selectedModel || !snapshot)) {
     return (
@@ -74,18 +111,22 @@ function ThresholdWorkspace() {
     );
   }
 
-  const costWeights: CostWeights = selectedModel.costWeights ?? snapshot.costWeights;
-  const currentCheckpoint = getExactCheckpoint(selectedModel, threshold);
-  const frozenCheckpoint = getExactCheckpoint(selectedModel, selectedModel.defaultThreshold);
-
   function selectModel(modelId: string) {
     const model = snapshot!.models.find((candidate) => candidate.modelId === modelId);
     setSelectedModelId(modelId);
+    setCustomCostWeights(null);
     if (model) setThreshold(model.defaultThreshold);
   }
 
   function selectRecommendation(recommendation: ThresholdRecommendation) {
     setThreshold(recommendation.metrics.threshold);
+  }
+
+  function handleReset() {
+    if (selectedModel) {
+      setThreshold(selectedModel.defaultThreshold);
+    }
+    setCustomCostWeights(null);
   }
 
   return (
@@ -143,7 +184,7 @@ function ThresholdWorkspace() {
           threshold={threshold}
           recommendations={selectedModel.recommendations}
           onThresholdChange={setThreshold}
-          onReset={() => setThreshold(selectedModel.defaultThreshold)}
+          onReset={handleReset}
           onSelectRecommendation={selectRecommendation}
           readOnly={false}
         />
@@ -163,7 +204,7 @@ function ThresholdWorkspace() {
                 </p>
               </div>
               {frozenCheckpoint ? (
-                <Button size="sm" onClick={() => setThreshold(selectedModel.defaultThreshold)}>
+                <Button size="sm" onClick={handleReset}>
                   Return to frozen evaluation policy ({selectedModel.defaultThreshold.toFixed(3)})
                 </Button>
               ) : (
@@ -176,7 +217,13 @@ function ThresholdWorkspace() {
             <ThresholdMetrics metrics={currentCheckpoint} scope={currentCheckpoint.scope} scopeLabel={currentCheckpoint.scopeLabel} />
             <ThresholdConfusionMatrix metrics={currentCheckpoint} modelName={selectedModel.modelName} scope={currentCheckpoint.scope} scopeLabel={currentCheckpoint.scopeLabel} />
             {frozenCheckpoint ? (
-              <BusinessCostBreakdown metrics={currentCheckpoint} defaultMetrics={frozenCheckpoint} costWeights={costWeights} onCostWeightsChange={() => undefined} readOnly />
+              <BusinessCostBreakdown
+                metrics={currentCheckpoint}
+                defaultMetrics={frozenCheckpoint}
+                costWeights={costWeights}
+                onCostWeightsChange={setCustomCostWeights}
+                readOnly={false}
+              />
             ) : null}
             <ThresholdPerformanceChart model={selectedModel} selectedThreshold={currentCheckpoint.threshold} />
             <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={currentCheckpoint.threshold} selectedScope={currentCheckpoint.scope} onSelect={selectRecommendation} />

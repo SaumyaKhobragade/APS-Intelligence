@@ -804,22 +804,71 @@ class HistoricalEvidenceService:
             source_reference="artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
         )
         points: list[HistoricalThresholdPoint] = []
+        raw_points = threshold.get("points")
+        if isinstance(raw_points, list) and raw_points:
+            for item in raw_points:
+                if isinstance(item, dict) and _number(item.get("threshold")) is not None:
+                    points.append(
+                        HistoricalThresholdPoint(
+                            threshold=float(item["threshold"]),
+                            precision=_number(item.get("precision")),
+                            recall=_number(item.get("recall")),
+                            f1_score=_number(item.get("f1_score")),
+                            specificity=_number(item.get("specificity")),
+                            false_positive=_int(item.get("false_positive")),
+                            false_negative=_int(item.get("false_negative")),
+                            true_positive=_int(item.get("true_positive")),
+                            true_negative=_int(item.get("true_negative")),
+                            business_cost=_number(item.get("business_cost")),
+                            source_reference="artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
+                            scope="validation",
+                            scope_label="External validation",
+                        )
+                    )
+        else:
+            for key in ("internal_min_cost", "internal_max_f1", "internal_recall_constrained"):
+                value = threshold.get(key)
+                if isinstance(value, dict) and _number(value.get("threshold")) is not None:
+                    points.append(
+                        HistoricalThresholdPoint(
+                            threshold=float(value["threshold"]),
+                            precision=_number(value.get("precision")),
+                            recall=_number(value.get("recall")),
+                            f1_score=_number(value.get("f1_score")),
+                            specificity=_number(value.get("specificity")),
+                            false_positive=_int(value.get("false_positive")),
+                            false_negative=_int(value.get("false_negative")),
+                            true_positive=_int(value.get("true_positive")),
+                            true_negative=_int(value.get("true_negative")),
+                            business_cost=_number(value.get("business_cost")),
+                            source_reference="artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
+                            scope="internal_selection",
+                            scope_label="Internal policy selection (OOF CV)",
+                        )
+                    )
+
+        internal_points: list[HistoricalThresholdPoint] = []
         for key in ("internal_min_cost", "internal_max_f1", "internal_recall_constrained"):
             value = threshold.get(key)
             if isinstance(value, dict) and _number(value.get("threshold")) is not None:
-                points.append(HistoricalThresholdPoint(
-                    threshold=float(value["threshold"]),
-                    precision=_number(value.get("precision")),
-                    recall=_number(value.get("recall")),
-                    f1_score=_number(value.get("f1_score")),
-                    specificity=_number(value.get("specificity")),
-                    false_positive=_int(value.get("false_positive")),
-                    false_negative=_int(value.get("false_negative")),
-                    true_positive=_int(value.get("true_positive")),
-                    true_negative=_int(value.get("true_negative")),
-                    business_cost=_number(value.get("business_cost")),
-                    source_reference="artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
-                ))
+                internal_points.append(
+                    HistoricalThresholdPoint(
+                        threshold=float(value["threshold"]),
+                        precision=_number(value.get("precision")),
+                        recall=_number(value.get("recall")),
+                        f1_score=_number(value.get("f1_score")),
+                        specificity=_number(value.get("specificity")),
+                        false_positive=_int(value.get("false_positive")),
+                        false_negative=_int(value.get("false_negative")),
+                        true_positive=_int(value.get("true_positive")),
+                        true_negative=_int(value.get("true_negative")),
+                        business_cost=_number(value.get("business_cost")),
+                        source_reference="artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
+                        scope="internal_selection",
+                        scope_label="Internal policy selection (OOF CV)",
+                    )
+                )
+
         availability = [self._availability("phase9_artifacts", artifacts)]
         threshold_response = HistoricalThresholdResponse(
             evidence_version=EVIDENCE_VERSION,
@@ -832,6 +881,7 @@ class HistoricalEvidenceService:
             selection_scope=str(threshold.get("selection_scope") or "Internal OOF policy subset derived from the training partition"),
             validation=validation,
             threshold_points=points,
+            internal_points=internal_points,
             calibration_metrics={
                 "brier_score": _number(calibration_external.get("brier_score")),
                 "log_loss": _number(calibration_external.get("log_loss")),

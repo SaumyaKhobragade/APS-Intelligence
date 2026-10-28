@@ -43,7 +43,21 @@ function BusinessCostBreakdown({ metrics, defaultMetrics, costWeights, onCostWei
           </p>
         </div>
         <div className="min-w-0 border-y border-line bg-surface p-5 sm:p-7">
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              Cost weights (illustrative: FP=1, FN=10 baseline)
+            </p>
+            {(costWeights.falsePositive !== 1 || costWeights.falseNegative !== 10) && !readOnly ? (
+              <button
+                type="button"
+                onClick={() => onCostWeightsChange({ falsePositive: 1, falseNegative: 10 })}
+                className="font-mono text-[10px] text-signal underline hover:text-signal/80 cursor-pointer"
+              >
+                Reset weights (1×FP, 10×FN)
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-4 grid gap-5 sm:grid-cols-2">
             <div>
               <label htmlFor="false-positive-weight" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">False positive weight</label>
               <Input id="false-positive-weight" type="number" min="0" step="1" value={costWeights.falsePositive} onChange={(event) => updateWeight("falsePositive", event.target.value)} disabled={readOnly} />

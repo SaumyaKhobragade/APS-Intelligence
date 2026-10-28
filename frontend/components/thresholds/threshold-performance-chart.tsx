@@ -133,8 +133,9 @@ function MetricChart({
               name={title}
               stroke="#E10600"
               strokeWidth={2.5}
-              dot={{ r: 2, fill: "#E10600", strokeWidth: 0 }}
+              dot={data.length > 50 ? false : { r: 2, fill: "#E10600", strokeWidth: 0 }}
               activeDot={{ r: 4 }}
+              isAnimationActive={false}
             />
             <ReferenceLine x={selectedThreshold} stroke="#E10600" strokeDasharray="4 4" label={{ value: "selected", fill: "#E10600", fontSize: 9, position: "top" }} />
             <ReferenceLine x={defaultThreshold} stroke="#C0C0C0" strokeDasharray="2 3" label={{ value: "frozen", fill: "#C0C0C0", fontSize: 9, position: "insideTopLeft" }} />

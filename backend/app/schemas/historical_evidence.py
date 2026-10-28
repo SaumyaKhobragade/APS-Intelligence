@@ -172,6 +172,8 @@ class HistoricalThresholdPoint(BaseModel):
     true_negative: int | None = None
     business_cost: float | None = None
     source_reference: str
+    scope: Literal["validation", "internal_selection"] | None = None
+    scope_label: str | None = None
 
 
 class HistoricalThresholdResponse(BaseModel):
@@ -185,6 +187,7 @@ class HistoricalThresholdResponse(BaseModel):
     selection_scope: str
     validation: HistoricalMetric | None = None
     threshold_points: list[HistoricalThresholdPoint] = Field(default_factory=list)
+    internal_points: list[HistoricalThresholdPoint] = Field(default_factory=list)
     calibration_metrics: dict[str, float | None] = Field(default_factory=dict)
     artifacts: list[HistoricalArtifact] = Field(default_factory=list)
     availability: list[HistoricalAvailability] = Field(default_factory=list)

@@ -38,13 +38,20 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
     scopeLabel: "External validation / frozen candidate",
     sourceReference: validation.source_reference,
   };
-  const internalPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
+  const rawPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
   const pointsMap = new Map<string, ThresholdCurvePoint>();
-  for (const pt of internalPoints) {
+  for (const pt of rawPoints) {
     pointsMap.set(pt.threshold.toFixed(4), pt);
   }
   pointsMap.set(frozen.threshold.toFixed(4), frozen);
   const sortedCurve = Array.from(pointsMap.values()).sort((a, b) => a.threshold - b.threshold);
+
+  const internalList = (threshold.internal_points && threshold.internal_points.length > 0)
+    ? threshold.internal_points
+    : threshold.threshold_points.filter((pt) => pt.scope === "internal_selection" || pt.scope === undefined);
+  const internalPoints = (internalList.length > 0 ? internalList : threshold.threshold_points).map((point) =>
+    historicalPointToThreshold(point, costs),
+  );
   const internalMaxF1 = internalPoints.reduce(
     (best, current) => (current.f1Score > best.f1Score ? current : best),
     internalPoints[0] ?? frozen,
@@ -148,6 +155,8 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
   const falseNegative = point.false_negative ?? 0;
   const truePositive = point.true_positive ?? 0;
   const trueNegative = point.true_negative ?? 0;
+  const scope = point.scope ?? "internal_selection";
+  const isValidation = scope === "validation";
   return {
     threshold: point.threshold,
     precision: point.precision ?? 0,
@@ -162,9 +171,9 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
     falsePositiveCost: falsePositive * costs.falsePositive,
     falseNegativeCost: falseNegative * costs.falseNegative,
     businessCost: point.business_cost ?? (falsePositive * costs.falsePositive + falseNegative * costs.falseNegative),
-    source: "internal_selection",
-    scope: "internal_selection",
-    scopeLabel: "Internal policy selection (OOF CV)",
+    source: isValidation ? "validation_checkpoint" : "internal_selection",
+    scope,
+    scopeLabel: point.scope_label ?? (isValidation ? "External validation" : "Internal policy selection (OOF CV)"),
     sourceReference: point.source_reference,
   };
 }

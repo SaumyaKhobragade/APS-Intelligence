@@ -126,6 +126,21 @@ export interface PreprocessingModelContext {
   hyperparameters?: Record<string, unknown>;
   configuration?: Record<string, unknown> | null;
   scalingApplied?: boolean;
+  isExecutionRecord?: boolean;
+}
+
+export function isCompleteExecutionRecord(ctx?: PreprocessingModelContext | null): boolean {
+  if (!ctx || typeof ctx !== "object") return false;
+  if (ctx.isExecutionRecord === false) return false;
+  const hasModel = Boolean(
+    (ctx.modelName && ctx.modelName.trim().length > 0) ||
+    (ctx.modelFamily && ctx.modelFamily.trim().length > 0)
+  );
+  const hasPreprocessing =
+    typeof ctx.preprocessingStrategy === "string" && ctx.preprocessingStrategy.trim().length > 0;
+  const hasImbalance =
+    typeof ctx.imbalanceStrategy === "string" && ctx.imbalanceStrategy.trim().length > 0;
+  return hasModel && hasPreprocessing && hasImbalance;
 }
 
 export function buildPreprocessingStages(
@@ -148,6 +163,9 @@ export function buildPreprocessingStages(
     : "Imputation learned strictly from training partition";
 
   const imbalanceRatio = profile?.class_distribution.imbalance_ratio ?? "1:59";
+
+  const isComplete = isCompleteExecutionRecord(modelContext);
+  const hasContext = Boolean(modelContext && Object.keys(modelContext).length > 0);
 
   // Check model context if provided
   const modelFamily = (modelContext?.modelFamily || "").toLowerCase();
@@ -177,9 +195,9 @@ export function buildPreprocessingStages(
   let stage4FittingType: PreprocessingStage["fittingType"] = "fitted_train_only";
   let stage4FittingLabel = "Training contract";
 
-  if (modelContext) {
+  if (isComplete) {
     stage4Evidence = "execution_evidence";
-    const prepStrat = modelContext.preprocessingStrategy;
+    const prepStrat = modelContext!.preprocessingStrategy;
     if (prepStrat === "native") {
       stage4Status = "not_applicable";
       stage4Desc =
@@ -193,27 +211,48 @@ export function buildPreprocessingStages(
       stage4Detail = "Median statistics learned from training partition only";
       stage4FittingType = "fitted_train_only";
       stage4FittingLabel = "Fitted on training only";
-    } else if (prepStrat === undefined || prepStrat === null) {
-      if (modelContext.configuration === null || modelContext.configuration === undefined) {
-        stage4Status = "unavailable";
-        stage4Desc =
-          "Missing-value handling configuration is not recorded in historical metadata for this experiment.";
-        stage4Detail = "Evidence unavailable in historical metadata";
-        stage4FittingType = "not_applicable";
-        stage4FittingLabel = "Configuration unavailable";
-      } else {
-        stage4Status = "unavailable";
-        stage4Desc = "Imputation configuration not recorded.";
-        stage4Detail = "Evidence unavailable";
-        stage4FittingType = "not_applicable";
-        stage4FittingLabel = "Not recorded";
-      }
     } else {
       stage4Status = "applied";
       stage4Desc = `${prepStrat} imputation fitted on training partition.`;
       stage4Detail = `${prepStrat} fitted on training partition only`;
       stage4FittingType = "fitted_train_only";
       stage4FittingLabel = "Fitted on training only";
+    }
+  } else if (hasContext) {
+    stage4Evidence = "pipeline_contract";
+    const prepStrat = modelContext!.preprocessingStrategy;
+    if (prepStrat === "native") {
+      stage4Status = "not_applicable";
+      stage4Desc =
+        "Native NaN routing: Tree algorithm handles missing values directly in split branching without imputation.";
+      stage4Detail = "Native missing-value routing · No imputation executed";
+      stage4FittingType = "not_applicable";
+      stage4FittingLabel = "Not applicable (native)";
+    } else if (prepStrat === "median") {
+      stage4Status = "applied";
+      stage4Desc = "Median imputation fitted strictly on training partition records.";
+      stage4Detail = "Median statistics learned from training partition only";
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (prepStrat) {
+      stage4Status = "applied";
+      stage4Desc = `${prepStrat} imputation fitted on training partition.`;
+      stage4Detail = `${prepStrat} fitted on training partition only`;
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
+      stage4Status = "unavailable";
+      stage4Desc =
+        "Missing-value handling configuration is not recorded in historical metadata for this experiment.";
+      stage4Detail = "Evidence unavailable in historical metadata";
+      stage4FittingType = "not_applicable";
+      stage4FittingLabel = "Configuration unavailable";
+    } else {
+      stage4Status = "unavailable";
+      stage4Desc = "Imputation configuration not recorded.";
+      stage4Detail = "Evidence unavailable";
+      stage4FittingType = "not_applicable";
+      stage4FittingLabel = "Not recorded";
     }
   }
 
@@ -226,7 +265,7 @@ export function buildPreprocessingStages(
   let stage5FittingType: PreprocessingStage["fittingType"] = "fitted_train_only";
   let stage5FittingLabel = "Training contract";
 
-  if (modelContext) {
+  if (isComplete) {
     stage5Evidence = "execution_evidence";
     if (isTree) {
       stage5Status = "not_applicable";
@@ -236,13 +275,13 @@ export function buildPreprocessingStages(
       stage5FittingLabel = "Not applicable";
     } else if (isLinear) {
       const scalingConfirmed =
-        modelContext.scalingApplied === true ||
-        modelContext.preprocessingStrategy === "standard_scaler" ||
+        modelContext!.scalingApplied === true ||
+        modelContext!.preprocessingStrategy === "standard_scaler" ||
         Boolean(
-          modelContext.configuration &&
-            (modelContext.configuration.scaling ||
-              modelContext.configuration.standard_scaler ||
-              String(modelContext.configuration.preprocessing || "").includes("scale"))
+          modelContext!.configuration &&
+            (modelContext!.configuration.scaling ||
+              modelContext!.configuration.standard_scaler ||
+              String(modelContext!.configuration.preprocessing || "").includes("scale"))
         );
       if (scalingConfirmed) {
         stage5Status = "applied";
@@ -250,7 +289,45 @@ export function buildPreprocessingStages(
         stage5Detail = "StandardScaler fitted on training partition";
         stage5FittingType = "fitted_train_only";
         stage5FittingLabel = "Fitted on training only";
-      } else if (modelContext.configuration === null || modelContext.configuration === undefined) {
+      } else {
+        stage5Status = "not_applicable";
+        stage5Desc = "Feature scaling not enabled in configuration for this linear model run.";
+        stage5Detail = "Feature scaling not applied";
+        stage5FittingType = "not_applicable";
+        stage5FittingLabel = "Not applicable";
+      }
+    } else {
+      stage5Status = "not_applicable";
+      stage5Desc = "Feature scaling not applied.";
+      stage5Detail = "Not applicable";
+      stage5FittingType = "not_applicable";
+      stage5FittingLabel = "Not applicable";
+    }
+  } else if (hasContext) {
+    stage5Evidence = "pipeline_contract";
+    if (isTree) {
+      stage5Status = "not_applicable";
+      stage5Desc = "Tree ensembles consume unscaled numeric features; StandardScaler is not applicable.";
+      stage5Detail = "Not applicable to tree ensembles (unscaled)";
+      stage5FittingType = "not_applicable";
+      stage5FittingLabel = "Not applicable";
+    } else if (isLinear) {
+      const scalingConfirmed =
+        modelContext!.scalingApplied === true ||
+        modelContext!.preprocessingStrategy === "standard_scaler" ||
+        Boolean(
+          modelContext!.configuration &&
+            (modelContext!.configuration.scaling ||
+              modelContext!.configuration.standard_scaler ||
+              String(modelContext!.configuration.preprocessing || "").includes("scale"))
+        );
+      if (scalingConfirmed) {
+        stage5Status = "applied";
+        stage5Desc = "StandardScaler fitted strictly on training partition features.";
+        stage5Detail = "StandardScaler fitted on training partition";
+        stage5FittingType = "fitted_train_only";
+        stage5FittingLabel = "Fitted on training only";
+      } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
         stage5Status = "unavailable";
         stage5Desc = "Scaling configuration not confirmed in historical metadata for this linear model run.";
         stage5Detail = "Evidence unavailable in historical metadata";
@@ -263,20 +340,14 @@ export function buildPreprocessingStages(
         stage5FittingType = "not_applicable";
         stage5FittingLabel = "Not applicable";
       }
+    } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
+      stage5Status = "unavailable";
+      stage5Desc = "Feature transformation configuration not recorded.";
+      stage5Detail = "Evidence unavailable";
+      stage5FittingType = "not_applicable";
+      stage5FittingLabel = "Configuration unavailable";
     } else {
-      if (modelContext.configuration === null || modelContext.configuration === undefined) {
-        stage5Status = "unavailable";
-        stage5Desc = "Feature transformation configuration not recorded.";
-        stage5Detail = "Evidence unavailable";
-        stage5FittingType = "not_applicable";
-        stage5FittingLabel = "Configuration unavailable";
-      } else {
-        stage5Status = "not_applicable";
-        stage5Desc = "Feature scaling not applied.";
-        stage5Detail = "Not applicable";
-        stage5FittingType = "not_applicable";
-        stage5FittingLabel = "Not applicable";
-      }
+      stage5Status = "methodology_contract";
     }
   }
 
@@ -289,9 +360,9 @@ export function buildPreprocessingStages(
   let stage6FittingType: PreprocessingStage["fittingType"] = "fitted_train_only";
   let stage6FittingLabel = "Training contract";
 
-  if (modelContext) {
+  if (isComplete) {
     stage6Evidence = "execution_evidence";
-    const imbStrat = modelContext.imbalanceStrategy;
+    const imbStrat = modelContext!.imbalanceStrategy;
     if (imbStrat === "original") {
       stage6Status = "not_applicable";
       stage6Desc =
@@ -312,12 +383,6 @@ export function buildPreprocessingStages(
       stage6Detail = "Loss weighting applied to positive class";
       stage6FittingType = "fitted_train_only";
       stage6FittingLabel = "Loss weighting";
-    } else if (imbStrat === undefined || imbStrat === null) {
-      stage6Status = "unavailable";
-      stage6Desc = "Class-imbalance handling strategy is not recorded in historical metadata.";
-      stage6Detail = "Evidence unavailable";
-      stage6FittingType = "not_applicable";
-      stage6FittingLabel = "Strategy unavailable";
     } else {
       stage6Status = "applied";
       stage6Desc = `${imbStrat} strategy applied inside training partition.`;
@@ -325,13 +390,55 @@ export function buildPreprocessingStages(
       stage6FittingType = "fitted_train_only";
       stage6FittingLabel = "Training partition only";
     }
+  } else if (hasContext) {
+    stage6Evidence = "pipeline_contract";
+    const imbStrat = modelContext!.imbalanceStrategy;
+    if (imbStrat === "original") {
+      stage6Status = "not_applicable";
+      stage6Desc =
+        "Original class distribution: Evaluated on natural 1:59 imbalance ratio without resampling or loss reweighting.";
+      stage6Detail = "Original ratio (1:59) preserved · No resampling or weighting";
+      stage6FittingType = "not_applicable";
+      stage6FittingLabel = "Natural distribution (no resampling)";
+    } else if (imbStrat === "smote") {
+      stage6Status = "applied";
+      stage6Desc =
+        "SMOTE synthetic oversampling applied strictly within training folds; never applied to validation or test partitions.";
+      stage6Detail = "SMOTE oversampling confined to training partition";
+      stage6FittingType = "fitted_train_only";
+      stage6FittingLabel = "Training partition only";
+    } else if (imbStrat === "class_weight" || imbStrat === "weighted") {
+      stage6Status = "applied";
+      stage6Desc = "Asymmetric positive class loss weighting applied inside training objective.";
+      stage6Detail = "Loss weighting applied to positive class";
+      stage6FittingType = "fitted_train_only";
+      stage6FittingLabel = "Loss weighting";
+    } else if (imbStrat) {
+      stage6Status = "applied";
+      stage6Desc = `${imbStrat} strategy applied inside training partition.`;
+      stage6Detail = `${imbStrat} applied in training`;
+      stage6FittingType = "fitted_train_only";
+      stage6FittingLabel = "Training partition only";
+    } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
+      stage6Status = "unavailable";
+      stage6Desc = "Class-imbalance handling strategy is not recorded in historical metadata.";
+      stage6Detail = "Evidence unavailable";
+      stage6FittingType = "not_applicable";
+      stage6FittingLabel = "Strategy unavailable";
+    } else {
+      stage6Status = "unavailable";
+      stage6Desc = "Class-imbalance handling strategy is not recorded.";
+      stage6Detail = "Evidence unavailable";
+      stage6FittingType = "not_applicable";
+      stage6FittingLabel = "Strategy unavailable";
+    }
   }
 
   // Determine Stage 7: Final model-ready feature representation
-  const stage7Status: PreprocessingStage["status"] = modelContext ? "completed" : "methodology_contract";
-  const stage7Evidence: PreprocessingStage["evidenceType"] = modelContext ? "execution_evidence" : "pipeline_contract";
-  const stage7Desc = modelContext
-    ? `Aligned 170-dimensional numeric feature representation feeding ${modelContext.modelName || "estimator"}. Maintains uniform column ordering and types; transformations conform to model architecture.`
+  const stage7Status: PreprocessingStage["status"] = isComplete ? "completed" : "methodology_contract";
+  const stage7Evidence: PreprocessingStage["evidenceType"] = isComplete ? "execution_evidence" : "pipeline_contract";
+  const stage7Desc = isComplete
+    ? `Aligned 170-dimensional numeric feature representation feeding ${modelContext?.modelName || "estimator"}. Maintains uniform column ordering and types; transformations conform to model architecture.`
     : "Aligned 170-dimensional numeric feature representation delivered to estimator pipelines. Shared schema alignment; scaling and imputation are model-specific.";
   const stage7Detail = "170-dimensional aligned numeric matrix feeding estimator contracts";
 

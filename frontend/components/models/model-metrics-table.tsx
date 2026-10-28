@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/feedback";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber, formatPercent } from "@/lib/formatters";
+import { computeIllustrativeCost } from "@/lib/business-cost";
 import type { ModelEvaluation } from "@/types";
 
 type SortKey = "modelName" | "prAuc" | "precision" | "recall" | "f1Score" | "falsePositiveCount" | "falseNegativeCount" | "businessCost" | "threshold";
@@ -177,6 +178,12 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
             <TableBody>
               {paginatedModels.map((model) => {
                 const isSelected = model.modelId === selectedModelId;
+                const costInfo = computeIllustrativeCost(
+                  model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount,
+                  model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount,
+                  model.businessImpact?.estimatedCost,
+                  model.evaluationScope,
+                );
                 return (
                   <TableRow key={model.modelId} className={isSelected ? "bg-signal-wash/50" : undefined}>
                     <TableCell>
@@ -197,9 +204,11 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
                     <TableCell className="font-mono text-xs">{formatPercent(model.f1Score)}</TableCell>
                     <TableCell className="font-mono text-xs">{model.specificity === undefined ? "—" : formatPercent(model.specificity)}</TableCell>
                     <TableCell className="font-mono text-xs">{model.balancedAccuracy === undefined ? "—" : formatPercent(model.balancedAccuracy)}</TableCell>
-                    <TableCell className="font-mono text-xs">{formatNumber(model.businessImpact.falsePositiveCount)}</TableCell>
-                    <TableCell className="font-mono text-xs text-signal">{formatNumber(model.businessImpact.falseNegativeCount)}</TableCell>
-                    <TableCell className="font-mono text-xs">{formatNumber(model.businessImpact.estimatedCost)}</TableCell>
+                    <TableCell className="font-mono text-xs">{costInfo.isAvailable ? formatNumber(costInfo.fpCount!) : "—"}</TableCell>
+                    <TableCell className="font-mono text-xs text-signal">{costInfo.isAvailable ? formatNumber(costInfo.fnCount!) : "—"}</TableCell>
+                    <TableCell className="font-mono text-xs" title={costInfo.hasDiscrepancy && costInfo.discrepancyNote ? costInfo.discrepancyNote : undefined}>
+                      {costInfo.isAvailable ? formatNumber(costInfo.calculatedCost!) : "Unavailable"}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{formatPercent(model.threshold)}</TableCell>
                   </TableRow>
                 );
@@ -254,10 +263,18 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
 
 function valueForSort(model: ModelEvaluation, key: SortKey): string | number {
   if (key === "modelName") return model.modelName;
-  if (key === "falsePositiveCount") return model.businessImpact.falsePositiveCount;
-  if (key === "falseNegativeCount") return model.businessImpact.falseNegativeCount;
-  if (key === "businessCost") return model.businessImpact.estimatedCost;
-  return model[key];
+  if (key === "falsePositiveCount") return model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount ?? -1;
+  if (key === "falseNegativeCount") return model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount ?? -1;
+  if (key === "businessCost") {
+    const costInfo = computeIllustrativeCost(
+      model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount,
+      model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount,
+      model.businessImpact?.estimatedCost,
+      model.evaluationScope,
+    );
+    return costInfo.isAvailable ? costInfo.calculatedCost! : -1;
+  }
+  return model[key] ?? -1;
 }
 
 function SortableHead({

@@ -386,6 +386,7 @@ class HistoricalEvidenceService:
             hyperparameters=_dict(row.get("hyperparameters_json")),
             source_database="data/phase3_smoke.db",
             training_duration_seconds=_number(row.get("training_duration_seconds")),
+            calibration_method=None,
         )
 
     def _phase4_summary(self, row: dict[str, Any]) -> HistoricalRunSummary:
@@ -431,6 +432,7 @@ class HistoricalEvidenceService:
             curves=_dict(row.get("curves_json")) or None,
             training_duration_seconds=_number(row.get("training_duration_seconds")),
             inference_duration_seconds=_number(row.get("inference_duration_seconds")),
+            calibration_method=None,
         )
 
     def _phase9_payloads(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -496,6 +498,11 @@ class HistoricalEvidenceService:
             key=lambda item: _number(item.get("mean_cv_pr_auc")) or -1,
             default={},
         )
+        calibration_method = (
+            _final_candidate.get("calibration", {}).get("selected_method")
+            if isinstance(_final_candidate, dict)
+            else None
+        )
         return HistoricalRunSummary(
             reference_type="experiment",
             reference_id=row["experiment_id"],
@@ -529,6 +536,7 @@ class HistoricalEvidenceService:
             curves=_dict(row.get("curves_json")) or None,
             training_duration_seconds=_number(row.get("training_duration_seconds")),
             inference_duration_seconds=_number(row.get("inference_duration_seconds")),
+            calibration_method=calibration_method,
         )
 
     def _phase9_summary_if_available(self) -> HistoricalRunSummary | None:
@@ -863,6 +871,7 @@ class HistoricalEvidenceService:
                         curves=curves or None,
                         training_duration_seconds=_number(item.get("training_duration_seconds")),
                         inference_duration_seconds=_number(item.get("inference_duration_seconds")),
+                        calibration_method=None,
                     )
                 )
         return rows

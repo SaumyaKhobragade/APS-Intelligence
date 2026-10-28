@@ -150,6 +150,7 @@ export interface ModelEvaluation extends ModelMetrics {
   strategy?: string;
   preprocessingStrategy?: string;
   calibrationProvenance?: string;
+  calibrationMethod?: string | null;
   curvesAvailable?: boolean;
   featureImportanceAvailable?: boolean;
 }

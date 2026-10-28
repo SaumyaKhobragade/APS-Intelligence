@@ -6,12 +6,14 @@ import {
   Database,
   FileCheck2,
   Layers,
+  Scale,
   ShieldAlert,
   SlidersHorizontal,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatPercent } from "@/lib/formatters";
+import { computeIllustrativeCost } from "@/lib/business-cost";
 import type { ModelEvaluation } from "@/types";
 
 interface ModelDetailsPanelProps {
@@ -53,9 +55,13 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
   const thresholdNote =
     model.threshold === 0.5
       ? "Standard default threshold (50%)"
-      : model.calibrationProvenance
-      ? `Calibrated operating point (${model.calibrationProvenance})`
       : "Persisted operating threshold";
+
+  const calibrationMethodValue = model.calibrationMethod ?? model.calibrationProvenance;
+  const calibrationDisplay = calibrationMethodValue ?? "Not recorded";
+  const calibrationNote = calibrationMethodValue
+    ? `Calibrated operating point (${calibrationMethodValue})`
+    : "No probability calibration recorded for this model artifact.";
 
   const evaluationScopeDisplay = model.evaluationScope ?? "Not recorded";
   const evaluationScopeNote = model.evaluationScope
@@ -77,12 +83,10 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
     return "Not recorded in configuration";
   }, [model.preprocessingStrategy]);
 
-  const fpCount = model.businessImpact?.falsePositiveCount ?? model.confusionMatrix?.falsePositive ?? 0;
-  const fnCount = model.businessImpact?.falseNegativeCount ?? model.confusionMatrix?.falseNegative ?? 0;
-  const unitFp = model.businessImpact?.unitFalsePositiveCost ?? 1;
-  const unitFn = model.businessImpact?.unitFalseNegativeCost ?? 10;
-  const calculatedCost = fpCount * unitFp + fnCount * unitFn;
-  const displayCost = model.businessImpact?.estimatedCost ?? calculatedCost;
+  const fpCount = model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount;
+  const fnCount = model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount;
+  const persistedCost = model.businessImpact?.estimatedCost;
+  const costInfo = computeIllustrativeCost(fpCount, fnCount, persistedCost, model.evaluationScope);
 
   return (
     <section
@@ -139,6 +143,12 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
               note={thresholdNote}
             />
             <DetailLine
+              icon={Scale}
+              label="Calibration method"
+              value={calibrationDisplay}
+              note={calibrationNote}
+            />
+            <DetailLine
               icon={Database}
               label="Training dataset"
               value={model.trainingDataset}
@@ -192,7 +202,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
             </div>
 
             <div className="p-5">
-              <div className="grid grid-cols-2 gap-4 border-b border-line pb-4 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 border-b border-line pb-4 sm:grid-cols-4">
                 <div>
                   <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
                     Model family
@@ -213,6 +223,14 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                   </p>
                   <p className="mt-1 font-mono text-sm text-ink">
                     {missingHandlingDisplay}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                    Calibration method
+                  </p>
+                  <p className="mt-1 font-mono text-sm text-ink">
+                    {calibrationDisplay}
                   </p>
                 </div>
               </div>
@@ -345,11 +363,22 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                       Illustrative business cost
                     </p>
                     <p className="mt-1 font-mono text-lg font-medium text-ink">
-                      {formatNumber(displayCost)}
+                      {costInfo.isAvailable ? formatNumber(costInfo.calculatedCost!) : "Unavailable"}
                     </p>
+                    {costInfo.hasDiscrepancy && costInfo.discrepancyNote ? (
+                      <p className="mt-1 font-mono text-xs text-signal">
+                        {costInfo.discrepancyNote}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="max-w-md text-xs leading-5 text-muted">
-                    Calculated as <span className="font-mono text-ink">FP count × {unitFp} + FN count × {unitFn}</span> ({fpCount} × {unitFp} + {fnCount} × {unitFn} = {calculatedCost}). Project convention uses illustrative decision weights (FP=1, FN=10), not monetary Scania operating cost.
+                    {costInfo.isAvailable ? (
+                      <>
+                        Calculated as <span className="font-mono text-ink">FP count × 1 + FN count × 10</span> ({costInfo.fpCount} × 1 + {costInfo.fnCount} × 10 = {formatNumber(costInfo.calculatedCost!)}). Project convention uses illustrative decision weights (FP=1, FN=10), not monetary Scania operating cost.
+                      </>
+                    ) : (
+                      "Confusion matrix counts are unavailable for this record."
+                    )}
                   </p>
                 </div>
               </div>

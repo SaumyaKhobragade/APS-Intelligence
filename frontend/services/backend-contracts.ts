@@ -647,6 +647,7 @@ export interface BackendHistoricalRunSummary {
   curves?: Record<string, unknown> | null;
   training_duration_seconds?: number | null;
   inference_duration_seconds?: number | null;
+  calibration_method?: string | null;
 }
 
 export interface BackendHistoricalRunDetail extends BackendHistoricalRunSummary {

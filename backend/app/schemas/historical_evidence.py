@@ -104,6 +104,7 @@ class HistoricalRunSummary(BaseModel):
     curves: dict[str, Any] | list[Any] | None = None
     training_duration_seconds: float | None = None
     inference_duration_seconds: float | None = None
+    calibration_method: str | None = None
 
 
 class HistoricalRunDetail(HistoricalRunSummary):

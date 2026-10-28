@@ -1,7 +1,8 @@
 import * as React from "react";
-import { AlertTriangle, CircleDollarSign, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Scale, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/formatters";
+import { computeIllustrativeCost } from "@/lib/business-cost";
 import type { ModelEvaluation } from "@/types";
 
 interface BusinessImpactComparisonProps {
@@ -11,16 +12,32 @@ interface BusinessImpactComparisonProps {
 }
 
 function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectModel }: BusinessImpactComparisonProps) {
-  const maxCost = React.useMemo(() => {
-    return Math.max(...models.map((model) => model.businessImpact.estimatedCost), 1);
+  const modelsWithCost = React.useMemo(() => {
+    return models.map((model) => {
+      const costInfo = computeIllustrativeCost(
+        model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount,
+        model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount,
+        model.businessImpact?.estimatedCost,
+        model.evaluationScope,
+      );
+      const fp = costInfo.isAvailable ? costInfo.fpCount! : 0;
+      const fn = costInfo.isAvailable ? costInfo.fnCount! : 0;
+      const totalCost = costInfo.isAvailable ? costInfo.calculatedCost! : 0;
+      return {
+        model,
+        costInfo,
+        fp,
+        fn,
+        fpCost: fp * 1,
+        fnCost: fn * 10,
+        totalCost,
+      };
+    });
   }, [models]);
 
-  const selected = React.useMemo(() => {
-    return models.find((model) => model.modelId === selectedModelId) ?? models[0];
-  }, [models, selectedModelId]);
-
-  const unitFp = selected?.businessImpact.unitFalsePositiveCost ?? 1;
-  const unitFn = selected?.businessImpact.unitFalseNegativeCost ?? 10;
+  const maxCost = React.useMemo(() => {
+    return Math.max(...modelsWithCost.map((item) => item.totalCost), 1);
+  }, [modelsWithCost]);
 
   return (
     <section id="business-impact" aria-labelledby="business-impact-heading" className="px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
@@ -30,7 +47,7 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
           <h2 id="business-impact-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">The cheapest threshold is its own question.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">PR-AUC ranks the precision-recall surface. Business cost depends on the selected operating point and the asymmetric penalty for missed failures.</p>
         </div>
-        <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> {unitFp} × FP + {unitFn} × FN (illustrative)</Badge>
+        <Badge variant="signal"><Scale aria-hidden="true" className="size-3" /> 1 × FP + 10 × FN (illustrative)</Badge>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[0.75fr_1.25fr]">
@@ -39,8 +56,8 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
           <p className="mt-6 font-display text-5xl leading-[0.9] tracking-[-0.05em]">False negatives carry the larger weight.</p>
           <p className="mt-6 text-sm leading-6 text-silver/75">The displayed costs come from the persisted validation metric configuration. Use this comparison as an illustrative decision aid, not as measured operational fleet cost.</p>
           <div className="mt-10 border-t border-white/15 pt-5 font-mono text-[10px] uppercase leading-6 tracking-[0.1em] text-silver/65">
-            Inspection / {unitFp} weight per false positive<br />
-            Missed failure / {unitFn} weight per false negative
+            Inspection / 1 weight per false positive<br />
+            Missed failure / 10 weight per false negative
           </div>
         </div>
 
@@ -55,8 +72,7 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
               <span>Total cost</span>
             </div>
             <div className="max-h-[34rem] divide-y divide-line overflow-y-auto">
-              {models.map((model) => {
-                const impact = model.businessImpact;
+              {modelsWithCost.map(({ model, costInfo, fp, fn, fpCost, fnCost, totalCost }) => {
                 const isSelected = model.modelId === selectedModelId;
                 return (
                   <button
@@ -75,20 +91,22 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
                       </span>
                       <span className="inline-flex items-center gap-1 font-mono text-xs text-ink">
                         <AlertTriangle aria-hidden="true" className="size-3 text-muted" />
-                        {formatNumber(impact.falsePositiveCount)}
+                        {costInfo.isAvailable ? formatNumber(fp) : "—"}
                       </span>
                       <span className="inline-flex items-center gap-1 font-mono text-xs text-signal">
                         <ShieldAlert aria-hidden="true" className="size-3" />
-                        {formatNumber(impact.falseNegativeCount)}
+                        {costInfo.isAvailable ? formatNumber(fn) : "—"}
                       </span>
-                      <span className="font-mono text-xs text-ink">{formatNumber(impact.falsePositiveCost)}</span>
-                      <span className="font-mono text-xs text-signal">{formatNumber(impact.falseNegativeCost)}</span>
-                      <span className="font-mono text-xs font-semibold text-ink">{formatNumber(impact.estimatedCost)}</span>
+                      <span className="font-mono text-xs text-ink">{costInfo.isAvailable ? formatNumber(fpCost) : "—"}</span>
+                      <span className="font-mono text-xs text-signal">{costInfo.isAvailable ? formatNumber(fnCost) : "—"}</span>
+                      <span className="font-mono text-xs font-semibold text-ink" title={costInfo.hasDiscrepancy && costInfo.discrepancyNote ? costInfo.discrepancyNote : undefined}>
+                        {costInfo.isAvailable ? formatNumber(totalCost) : "Unavailable"}
+                      </span>
                     </div>
                     <div className="mt-3 h-1 bg-canvas-deep">
                       <div
                         className={`h-full ${model.modelId.includes("catboost") ? "bg-signal" : "bg-charcoal"}`}
-                        style={{ width: `${Math.min((impact.estimatedCost / maxCost) * 100, 100)}%` }}
+                        style={{ width: `${Math.min((totalCost / maxCost) * 100, 100)}%` }}
                       />
                     </div>
                   </button>

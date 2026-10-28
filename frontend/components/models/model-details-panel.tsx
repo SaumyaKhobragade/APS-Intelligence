@@ -11,7 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatPercent } from "@/lib/formatters";
+import { formatNumber, formatPercent } from "@/lib/formatters";
 import type { ModelEvaluation } from "@/types";
 
 interface ModelDetailsPanelProps {
@@ -49,6 +49,40 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
   const featureImportanceStatusDisplay = model.featureImportanceAvailable
     ? "Available"
     : "Artifact unavailable";
+
+  const thresholdNote =
+    model.threshold === 0.5
+      ? "Standard default threshold (50%)"
+      : model.calibrationProvenance
+      ? `Calibrated operating point (${model.calibrationProvenance})`
+      : "Persisted operating threshold";
+
+  const evaluationScopeDisplay = model.evaluationScope ?? "Not recorded";
+  const evaluationScopeNote = model.evaluationScope
+    ? "Metrics are derived from holdout validation evidence; distinct from internal CV and official-test scopes."
+    : "Evaluation scope was not recorded in historical metadata.";
+
+  const imbalanceStrategyDisplay = model.strategy ?? "Not recorded";
+
+  const missingHandlingDisplay = React.useMemo(() => {
+    if (model.preprocessingStrategy === "native") {
+      return "Native NaN support (confirmed in config)";
+    }
+    if (model.preprocessingStrategy === "median") {
+      return "Median imputation (fitted on train)";
+    }
+    if (model.preprocessingStrategy) {
+      return `${model.preprocessingStrategy} (persisted in config)`;
+    }
+    return "Not recorded in configuration";
+  }, [model.preprocessingStrategy]);
+
+  const fpCount = model.businessImpact?.falsePositiveCount ?? model.confusionMatrix?.falsePositive ?? 0;
+  const fnCount = model.businessImpact?.falseNegativeCount ?? model.confusionMatrix?.falseNegative ?? 0;
+  const unitFp = model.businessImpact?.unitFalsePositiveCost ?? 1;
+  const unitFn = model.businessImpact?.unitFalseNegativeCost ?? 10;
+  const calculatedCost = fpCount * unitFp + fnCount * unitFn;
+  const displayCost = model.businessImpact?.estimatedCost ?? calculatedCost;
 
   return (
     <section
@@ -102,11 +136,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
               icon={SlidersHorizontal}
               label="Classification threshold"
               value={formatPercent(model.threshold)}
-              note={
-                model.threshold === 0.5
-                  ? "Standard default threshold (50%)"
-                  : "Calibrated operating point"
-              }
+              note={thresholdNote}
             />
             <DetailLine
               icon={Database}
@@ -130,10 +160,10 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
               Evaluation scope
             </p>
             <p className="mt-2 text-sm text-silver/90">
-              {model.evaluationScope ?? "External validation"}
+              {evaluationScopeDisplay}
             </p>
             <p className="mt-1 text-xs text-silver/60">
-              Metrics are derived from holdout validation evidence; distinct from internal CV and official-test scopes.
+              {evaluationScopeNote}
             </p>
           </div>
         </div>
@@ -174,7 +204,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                     Imbalance strategy
                   </p>
                   <p className="mt-1 font-mono text-sm text-ink">
-                    {model.strategy ?? "original"}
+                    {imbalanceStrategyDisplay}
                   </p>
                 </div>
                 <div>
@@ -182,9 +212,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                     Missing-value handling
                   </p>
                   <p className="mt-1 font-mono text-sm text-ink">
-                    {model.modelType === "catboost" || model.modelType === "xgboost"
-                      ? "Native NaN support"
-                      : "Median imputation (fitted on train)"}
+                    {missingHandlingDisplay}
                   </p>
                 </div>
               </div>
@@ -256,7 +284,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                   Evaluation scope
                 </p>
                 <p className="mt-1.5 font-mono text-xs text-signal">
-                  {model.evaluationScope ?? "validation"}
+                  {evaluationScopeDisplay}
                 </p>
               </div>
               <div className="bg-surface p-4">
@@ -307,6 +335,22 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
                     Specificity
                   </p>
                   <p className="mt-2 font-mono text-xl text-ink">{specificityDisplay}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 border-t border-line pt-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Illustrative business cost
+                    </p>
+                    <p className="mt-1 font-mono text-lg font-medium text-ink">
+                      {formatNumber(displayCost)}
+                    </p>
+                  </div>
+                  <p className="max-w-md text-xs leading-5 text-muted">
+                    Calculated as <span className="font-mono text-ink">FP count × {unitFp} + FN count × {unitFn}</span> ({fpCount} × {unitFp} + {fnCount} × {unitFn} = {calculatedCost}). Project convention uses illustrative decision weights (FP=1, FN=10), not monetary Scania operating cost.
+                  </p>
                 </div>
               </div>
 

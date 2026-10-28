@@ -167,6 +167,8 @@ export function mapHistoricalSummaryToModel(summary: BackendHistoricalRunSummary
     artifactAvailable: summary.artifact_available,
     sourceDatabase: summary.source_database,
     strategy: summary.imbalance_strategy ?? undefined,
+    preprocessingStrategy: summary.preprocessing_strategy ?? undefined,
+    calibrationProvenance: summary.candidate_label ? "isotonic" : undefined,
     curvesAvailable: curvePoints(summary.curves).length > 0 || mapRocCurve(summary.curves).length > 0,
     featureImportanceAvailable: Boolean(summary.feature_importance_available),
   };

@@ -173,7 +173,7 @@ describe("Phase 13.3.2 Evidence Refinement Tests", () => {
       expect(stages[5].detail).toContain("1:59");
 
       expect(stages[6].id).toBe("model-ready");
-      expect(stages[6].status).toBe("completed");
+      expect(stages[6].status).toBe("methodology_contract");
       expect(stages[6].detail).toContain("170-dimensional");
     });
 
@@ -192,7 +192,7 @@ describe("Phase 13.3.2 Evidence Refinement Tests", () => {
       const html = renderToStaticMarkup(
         React.createElement(PreprocessingPipeline, { stages: [] }),
       );
-      expect(html).toContain("Transformation boundary / Training pipeline contract");
+      expect(html).toContain("Transformation boundary / General training pipeline contract");
       expect(html).toContain("1. Raw dataset ingestion");
       expect(html).toContain("7. Final model-ready feature representation");
       expect(html).toContain("Training-Only Fitting Boundary");

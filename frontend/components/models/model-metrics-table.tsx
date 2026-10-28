@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/feedback";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
+import { formatNumber, formatPercent } from "@/lib/formatters";
 import type { ModelEvaluation } from "@/types";
 
 type SortKey = "modelName" | "prAuc" | "precision" | "recall" | "f1Score" | "falsePositiveCount" | "falseNegativeCount" | "businessCost" | "threshold";
@@ -199,7 +199,7 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
                     <TableCell className="font-mono text-xs">{model.balancedAccuracy === undefined ? "—" : formatPercent(model.balancedAccuracy)}</TableCell>
                     <TableCell className="font-mono text-xs">{formatNumber(model.businessImpact.falsePositiveCount)}</TableCell>
                     <TableCell className="font-mono text-xs text-signal">{formatNumber(model.businessImpact.falseNegativeCount)}</TableCell>
-                    <TableCell className="font-mono text-xs">{formatCurrency(model.businessImpact.estimatedCost)}</TableCell>
+                    <TableCell className="font-mono text-xs">{formatNumber(model.businessImpact.estimatedCost)}</TableCell>
                     <TableCell className="font-mono text-xs">{formatPercent(model.threshold)}</TableCell>
                   </TableRow>
                 );

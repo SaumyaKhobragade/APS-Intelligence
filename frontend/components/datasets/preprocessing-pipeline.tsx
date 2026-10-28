@@ -25,6 +25,7 @@ const DEFAULT_STAGES: PreprocessingStage[] = [
     label: "1. Raw dataset ingestion",
     description: "Ingest tabular sensor telemetry from source artifact without in-memory mutations.",
     status: "completed",
+    evidenceType: "dataset_fact",
     detail: "170 numeric operational sensor attributes ingested",
     partition: "All partitions",
     fittingType: "contract_boundary",
@@ -35,6 +36,7 @@ const DEFAULT_STAGES: PreprocessingStage[] = [
     label: "2. Schema validation & feature identification",
     description: "Verify 170 numeric operational sensor columns and failure target column (class).",
     status: "completed",
+    evidenceType: "dataset_fact",
     detail: "Target: class (pos / neg) · Strict column schema",
     partition: "All partitions",
     fittingType: "contract_boundary",
@@ -45,6 +47,7 @@ const DEFAULT_STAGES: PreprocessingStage[] = [
     label: "3. Training/validation split",
     description: "Stratified partition preserving failure class ratio. Strict isolation prevents holdout leakage.",
     status: "completed",
+    evidenceType: "dataset_fact",
     detail: "Holdout partitions remain separate and unexposed",
     partition: "Split boundary",
     fittingType: "contract_boundary",
@@ -53,39 +56,43 @@ const DEFAULT_STAGES: PreprocessingStage[] = [
   {
     id: "missing-values",
     label: "4. Missing-value handling",
-    description: "Imputation statistics (median/constant) fitted strictly on training data only. Native NaN support used for tree ensembles.",
-    status: "applied",
-    detail: "Imputation parameters learned strictly from training partition",
+    description: "Training pipeline contract: Median imputation for linear pipelines, native NaN routing for tree models. Imputation statistics learned strictly from training partition.",
+    status: "methodology_contract",
+    evidenceType: "pipeline_contract",
+    detail: "General training contract · Model execution record not attached",
     partition: "Fitted on training only · Applied downstream",
     fittingType: "fitted_train_only",
-    fittingLabel: "Fitted on training only",
+    fittingLabel: "Training contract",
   },
   {
     id: "feature-scaling",
     label: "5. Feature transformation & scaling",
-    description: "StandardScaler fitted strictly on training partition features for linear models (Logistic Regression); tree models consume unscaled features directly.",
-    status: "applied",
-    detail: "StandardScaler fitted on training partition for linear models",
+    description: "Training pipeline contract: StandardScaler fitted on training partition for linear models; tree models consume unscaled features directly.",
+    status: "methodology_contract",
+    evidenceType: "pipeline_contract",
+    detail: "General training contract · Model-dependent (not applicable to tree models)",
     partition: "Fitted on training only · Applied downstream",
     fittingType: "fitted_train_only",
-    fittingLabel: "Fitted on training only",
+    fittingLabel: "Training contract",
   },
   {
     id: "class-imbalance",
     label: "6. Class-imbalance handling",
-    description: "Resampling (SMOTE) or algorithmic weighting (native class_weight) applied strictly inside training partition/folds. Never resample validation or test sets.",
-    status: "applied",
-    detail: "Resampling and weighting confined to training partition",
+    description: "Training pipeline contract: Resampling (SMOTE) or algorithmic weighting applied strictly inside training partition/folds. Original baseline retains natural 1:59 ratio.",
+    status: "methodology_contract",
+    evidenceType: "pipeline_contract",
+    detail: "General training contract · Strategy-dependent",
     partition: "Training partition only",
     fittingType: "fitted_train_only",
-    fittingLabel: "Training partition only",
+    fittingLabel: "Training contract",
   },
   {
     id: "model-ready",
     label: "7. Final model-ready feature representation",
-    description: "Standardized 170-dimensional numeric tensor with aligned schema delivered to estimator pipelines.",
-    status: "completed",
-    detail: "170-dimensional numeric matrix feeding estimator contracts",
+    description: "Aligned 170-dimensional numeric feature representation delivered to estimator pipelines. Shared schema alignment; scaling and imputation are model-specific.",
+    status: "methodology_contract",
+    evidenceType: "pipeline_contract",
+    detail: "General training contract · Aligned schema matrix",
     partition: "All partitions (evaluated separately)",
     fittingType: "applied_transform",
     fittingLabel: "Aligned model schema",
@@ -93,7 +100,9 @@ const DEFAULT_STAGES: PreprocessingStage[] = [
 ];
 
 function PreprocessingPipeline({ stages }: PreprocessingPipelineProps) {
-  const activeStages = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
+  const isFallback = !stages || stages.length === 0;
+  const activeStages = !isFallback ? stages : DEFAULT_STAGES;
+  const isContractOnly = isFallback || activeStages.some((s) => s.evidenceType === "pipeline_contract");
 
   return (
     <section
@@ -151,14 +160,16 @@ function PreprocessingPipeline({ stages }: PreprocessingPipelineProps) {
           <div className="flex flex-col gap-3 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                Transformation boundary / Training pipeline contract
+                Transformation boundary / {isContractOnly ? "General training pipeline contract" : "Execution evidence"}
               </p>
               <p className="mt-1 text-sm text-ink">
-                Executed offline during model training; frontend is read-only presentation
+                {isContractOnly
+                  ? "General training-pipeline contract · Not an experiment-specific execution record"
+                  : "Executed offline during model training; verified against persisted artifact configuration"}
               </p>
             </div>
             <Badge variant="neutral">
-              <FlaskConical aria-hidden="true" className="size-3" /> Training contract
+              <FlaskConical aria-hidden="true" className="size-3" /> {isContractOnly ? "General contract" : "Verified execution"}
             </Badge>
           </div>
 
@@ -172,6 +183,17 @@ function PreprocessingPipeline({ stages }: PreprocessingPipelineProps) {
               Stages 4, 5, and 6 fit parameters exclusively on training records. Validation and test sets receive applied transformations without refitting.
             </p>
           </div>
+
+          {isContractOnly ? (
+            <div className="mt-3 border border-line bg-canvas-deep/40 px-4 py-2.5 text-xs text-muted">
+              <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-silver">
+                Notice · General pipeline contract
+              </p>
+              <p className="mt-0.5 text-ink-soft">
+                These stages reflect the architecture-level training contract, not a specific model execution trace. Individual models vary in missing-value routing, scaling, and resampling.
+              </p>
+            </div>
+          ) : null}
 
           <ol className="mt-7 space-y-4">
             {activeStages.map((stage, index) => {
@@ -215,6 +237,19 @@ function PreprocessingPipeline({ stages }: PreprocessingPipelineProps) {
                   </div>
 
                   <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
+                    {stage.evidenceType ? (
+                      <span className={`inline-flex items-center gap-1 border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ${
+                        stage.evidenceType === "execution_evidence"
+                          ? "border-signal/40 bg-signal/10 text-signal font-semibold"
+                          : "border-line bg-canvas-deep text-muted"
+                      }`}>
+                        {stage.evidenceType === "dataset_fact"
+                          ? "Dataset fact"
+                          : stage.evidenceType === "execution_evidence"
+                          ? "Execution evidence"
+                          : "Pipeline contract"}
+                      </span>
+                    ) : null}
                     {stage.partition ? (
                       <span className="inline-flex items-center gap-1 border border-line bg-canvas-deep px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-soft">
                         <Database aria-hidden="true" className="size-2.5 text-muted" />
@@ -254,6 +289,7 @@ const statusClasses: Record<PreprocessingStageStatus, string> = {
   pending: "border-line-strong bg-surface text-muted",
   not_applicable: "border-line bg-canvas-deep text-muted",
   unavailable: "border-line-strong bg-canvas-deep text-muted",
+  methodology_contract: "border-line-strong bg-canvas-deep text-muted",
 };
 
 function statusIcon(status: PreprocessingStageStatus) {
@@ -272,6 +308,7 @@ function StatusBadge({ status }: { status: PreprocessingStageStatus }) {
     pending: "Pending",
     not_applicable: "Not applicable",
     unavailable: "Evidence unavailable",
+    methodology_contract: "Methodology contract",
   };
   const variants: Record<PreprocessingStageStatus, "success" | "signal" | "warning" | "neutral"> = {
     completed: "success",
@@ -280,6 +317,7 @@ function StatusBadge({ status }: { status: PreprocessingStageStatus }) {
     pending: "warning",
     not_applicable: "neutral",
     unavailable: "neutral",
+    methodology_contract: "neutral",
   };
   return (
     <Badge variant={variants[status] ?? "neutral"}>

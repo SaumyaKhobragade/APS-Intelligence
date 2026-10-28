@@ -63,7 +63,19 @@ export interface ClassDistribution {
   imbalanceRatio: string;
 }
 
-export type PreprocessingStageStatus = "pending" | "completed" | "in_progress" | "not_applicable" | "applied" | "unavailable";
+export type PreprocessingStageStatus =
+  | "pending"
+  | "completed"
+  | "in_progress"
+  | "not_applicable"
+  | "applied"
+  | "unavailable"
+  | "methodology_contract";
+
+export type PreprocessingEvidenceType =
+  | "dataset_fact"
+  | "pipeline_contract"
+  | "execution_evidence";
 
 export interface PreprocessingStage {
   id: string;
@@ -71,6 +83,7 @@ export interface PreprocessingStage {
   description: string;
   status: PreprocessingStageStatus;
   detail: string;
+  evidenceType?: PreprocessingEvidenceType;
   partition?: string;
   fittingType?: "fitted_train_only" | "applied_transform" | "contract_boundary" | "not_applicable";
   fittingLabel?: string;
@@ -135,6 +148,8 @@ export interface ModelEvaluation extends ModelMetrics {
   artifactAvailable?: boolean;
   sourceDatabase?: string;
   strategy?: string;
+  preprocessingStrategy?: string;
+  calibrationProvenance?: string;
   curvesAvailable?: boolean;
   featureImportanceAvailable?: boolean;
 }

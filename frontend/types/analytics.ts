@@ -213,9 +213,19 @@ export interface BatchPredictionResponse {
   rowCount: number;
   completedCount: number;
   failedCount: number;
+  positiveCount?: number;
+  negativeCount?: number;
+  totalInferenceDurationMs?: number;
+  averageInferenceDurationMs?: number;
   resultsFileName: string;
   completedAt?: string;
+  warnings?: string[];
   firstPrediction?: PredictionResult;
+  items?: Array<{
+    index: number;
+    prediction?: PredictionResult | null;
+    error?: { code: string; message: string; details?: unknown[] } | null;
+  }>;
 }
 
 export interface ConfusionMatrix {

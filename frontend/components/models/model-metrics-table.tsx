@@ -182,7 +182,6 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
                   model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount,
                   model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount,
                   model.businessImpact?.estimatedCost,
-                  model.evaluationScope,
                 );
                 return (
                   <TableRow key={model.modelId} className={isSelected ? "bg-signal-wash/50" : undefined}>
@@ -255,7 +254,7 @@ function ModelMetricsTableComponent({ models, selectedModelId, onSelectModel }: 
       </div>
 
       <p className="mt-3 text-xs leading-5 text-muted">
-        Values use persisted validation evidence and the threshold shown in each row. Business cost uses the recorded illustrative FP/FN configuration.
+        Values use persisted validation evidence and the threshold shown in each row. Business cost uses the project&apos;s established unitless weights (FP × 1 + FN × 10).
       </p>
     </section>
   );
@@ -270,7 +269,6 @@ function valueForSort(model: ModelEvaluation, key: SortKey): string | number {
       model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount,
       model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount,
       model.businessImpact?.estimatedCost,
-      model.evaluationScope,
     );
     return costInfo.isAvailable ? costInfo.calculatedCost! : -1;
   }

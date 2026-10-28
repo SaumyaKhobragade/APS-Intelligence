@@ -118,6 +118,34 @@ function mapFeature(feature: NonNullable<BackendDatasetAnalyticsResponse["featur
   };
 }
 
+export const SUPPORTED_PREPROCESSING_STRATEGIES = [
+  "native",
+  "median",
+  "mean",
+  "constant",
+  "missingness_indicators",
+  "standard_scaler",
+] as const;
+
+export type SupportedPreprocessingStrategy = (typeof SUPPORTED_PREPROCESSING_STRATEGIES)[number];
+
+export function isSupportedPreprocessingStrategy(val: unknown): val is SupportedPreprocessingStrategy {
+  return typeof val === "string" && (SUPPORTED_PREPROCESSING_STRATEGIES as readonly string[]).includes(val.toLowerCase().trim());
+}
+
+export const SUPPORTED_IMBALANCE_STRATEGIES = [
+  "original",
+  "smote",
+  "class_weight",
+  "weighted",
+] as const;
+
+export type SupportedImbalanceStrategy = (typeof SUPPORTED_IMBALANCE_STRATEGIES)[number];
+
+export function isSupportedImbalanceStrategy(val: unknown): val is SupportedImbalanceStrategy {
+  return typeof val === "string" && (SUPPORTED_IMBALANCE_STRATEGIES as readonly string[]).includes(val.toLowerCase().trim());
+}
+
 export interface PreprocessingModelContext {
   modelName?: string;
   modelFamily?: string;
@@ -131,16 +159,14 @@ export interface PreprocessingModelContext {
 
 export function isCompleteExecutionRecord(ctx?: PreprocessingModelContext | null): boolean {
   if (!ctx || typeof ctx !== "object") return false;
-  if (ctx.isExecutionRecord === false) return false;
+  if (ctx.isExecutionRecord !== true) return false;
   const hasModel = Boolean(
     (ctx.modelName && ctx.modelName.trim().length > 0) ||
     (ctx.modelFamily && ctx.modelFamily.trim().length > 0)
   );
-  const hasPreprocessing =
-    typeof ctx.preprocessingStrategy === "string" && ctx.preprocessingStrategy.trim().length > 0;
-  const hasImbalance =
-    typeof ctx.imbalanceStrategy === "string" && ctx.imbalanceStrategy.trim().length > 0;
-  return hasModel && hasPreprocessing && hasImbalance;
+  const hasValidPreprocessing = isSupportedPreprocessingStrategy(ctx.preprocessingStrategy);
+  const hasValidImbalance = isSupportedImbalanceStrategy(ctx.imbalanceStrategy);
+  return hasModel && hasValidPreprocessing && hasValidImbalance;
 }
 
 export function buildPreprocessingStages(
@@ -197,7 +223,7 @@ export function buildPreprocessingStages(
 
   if (isComplete) {
     stage4Evidence = "execution_evidence";
-    const prepStrat = modelContext!.preprocessingStrategy;
+    const prepStrat = modelContext!.preprocessingStrategy?.toLowerCase().trim();
     if (prepStrat === "native") {
       stage4Status = "not_applicable";
       stage4Desc =
@@ -209,37 +235,89 @@ export function buildPreprocessingStages(
       stage4Status = "applied";
       stage4Desc = "Median imputation fitted strictly on training partition records.";
       stage4Detail = "Median statistics learned from training partition only";
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (prepStrat === "mean") {
+      stage4Status = "applied";
+      stage4Desc = "Mean imputation fitted strictly on training partition records.";
+      stage4Detail = "Mean statistics learned from training partition only";
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (prepStrat === "constant") {
+      stage4Status = "applied";
+      stage4Desc = "Constant value imputation fitted strictly on training partition.";
+      stage4Detail = "Constant value imputation on training partition only";
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (prepStrat === "missingness_indicators") {
+      stage4Status = "applied";
+      stage4Desc = "Missingness indicators generated strictly from training partition.";
+      stage4Detail = "Missingness indicators generated on training partition";
+      stage4FittingType = "fitted_train_only";
+      stage4FittingLabel = "Fitted on training only";
+    } else if (prepStrat === "standard_scaler") {
+      stage4Status = "applied";
+      stage4Desc = "StandardScaler fitted strictly on training partition features.";
+      stage4Detail = "StandardScaler fitted on training partition";
       stage4FittingType = "fitted_train_only";
       stage4FittingLabel = "Fitted on training only";
     } else {
-      stage4Status = "applied";
-      stage4Desc = `${prepStrat} imputation fitted on training partition.`;
-      stage4Detail = `${prepStrat} fitted on training partition only`;
-      stage4FittingType = "fitted_train_only";
-      stage4FittingLabel = "Fitted on training only";
+      stage4Status = "unavailable";
+      stage4Evidence = "pipeline_contract";
+      stage4Desc = "Missing-value handling strategy unrecognized in execution record.";
+      stage4Detail = "Evidence unavailable (unrecognized strategy)";
+      stage4FittingType = "not_applicable";
+      stage4FittingLabel = "Strategy unavailable";
     }
   } else if (hasContext) {
     stage4Evidence = "pipeline_contract";
-    const prepStrat = modelContext!.preprocessingStrategy;
-    if (prepStrat === "native") {
-      stage4Status = "not_applicable";
-      stage4Desc =
-        "Native NaN routing: Tree algorithm handles missing values directly in split branching without imputation.";
-      stage4Detail = "Native missing-value routing · No imputation executed";
-      stage4FittingType = "not_applicable";
-      stage4FittingLabel = "Not applicable (native)";
-    } else if (prepStrat === "median") {
-      stage4Status = "applied";
-      stage4Desc = "Median imputation fitted strictly on training partition records.";
-      stage4Detail = "Median statistics learned from training partition only";
-      stage4FittingType = "fitted_train_only";
-      stage4FittingLabel = "Fitted on training only";
+    const rawPrep = modelContext!.preprocessingStrategy;
+    const prepStrat = typeof rawPrep === "string" ? rawPrep.toLowerCase().trim() : undefined;
+    if (prepStrat && isSupportedPreprocessingStrategy(prepStrat)) {
+      if (prepStrat === "native") {
+        stage4Status = "not_applicable";
+        stage4Desc =
+          "Native NaN routing: Tree algorithm handles missing values directly in split branching without imputation.";
+        stage4Detail = "Native missing-value routing · No imputation executed";
+        stage4FittingType = "not_applicable";
+        stage4FittingLabel = "Not applicable (native)";
+      } else if (prepStrat === "median") {
+        stage4Status = "applied";
+        stage4Desc = "Median imputation fitted strictly on training partition records.";
+        stage4Detail = "Median statistics learned from training partition only";
+        stage4FittingType = "fitted_train_only";
+        stage4FittingLabel = "Fitted on training only";
+      } else if (prepStrat === "mean") {
+        stage4Status = "applied";
+        stage4Desc = "Mean imputation fitted strictly on training partition records.";
+        stage4Detail = "Mean statistics learned from training partition only";
+        stage4FittingType = "fitted_train_only";
+        stage4FittingLabel = "Fitted on training only";
+      } else if (prepStrat === "constant") {
+        stage4Status = "applied";
+        stage4Desc = "Constant value imputation fitted strictly on training partition.";
+        stage4Detail = "Constant value imputation on training partition only";
+        stage4FittingType = "fitted_train_only";
+        stage4FittingLabel = "Fitted on training only";
+      } else if (prepStrat === "missingness_indicators") {
+        stage4Status = "applied";
+        stage4Desc = "Missingness indicators generated strictly from training partition.";
+        stage4Detail = "Missingness indicators generated on training partition";
+        stage4FittingType = "fitted_train_only";
+        stage4FittingLabel = "Fitted on training only";
+      } else if (prepStrat === "standard_scaler") {
+        stage4Status = "applied";
+        stage4Desc = "StandardScaler fitted strictly on training partition features.";
+        stage4Detail = "StandardScaler fitted on training partition";
+        stage4FittingType = "fitted_train_only";
+        stage4FittingLabel = "Fitted on training only";
+      }
     } else if (prepStrat) {
-      stage4Status = "applied";
-      stage4Desc = `${prepStrat} imputation fitted on training partition.`;
-      stage4Detail = `${prepStrat} fitted on training partition only`;
-      stage4FittingType = "fitted_train_only";
-      stage4FittingLabel = "Fitted on training only";
+      stage4Status = "unavailable";
+      stage4Desc = `Unrecognized missing-value handling strategy "${rawPrep}". Evidence unavailable.`;
+      stage4Detail = "Evidence unavailable (unrecognized strategy)";
+      stage4FittingType = "not_applicable";
+      stage4FittingLabel = "Strategy unavailable";
     } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
       stage4Status = "unavailable";
       stage4Desc =
@@ -362,7 +440,7 @@ export function buildPreprocessingStages(
 
   if (isComplete) {
     stage6Evidence = "execution_evidence";
-    const imbStrat = modelContext!.imbalanceStrategy;
+    const imbStrat = modelContext!.imbalanceStrategy?.toLowerCase().trim();
     if (imbStrat === "original") {
       stage6Status = "not_applicable";
       stage6Desc =
@@ -384,41 +462,45 @@ export function buildPreprocessingStages(
       stage6FittingType = "fitted_train_only";
       stage6FittingLabel = "Loss weighting";
     } else {
-      stage6Status = "applied";
-      stage6Desc = `${imbStrat} strategy applied inside training partition.`;
-      stage6Detail = `${imbStrat} applied in training`;
-      stage6FittingType = "fitted_train_only";
-      stage6FittingLabel = "Training partition only";
+      stage6Status = "unavailable";
+      stage6Evidence = "pipeline_contract";
+      stage6Desc = "Class-imbalance handling strategy unrecognized in execution record.";
+      stage6Detail = "Evidence unavailable (unrecognized strategy)";
+      stage6FittingType = "not_applicable";
+      stage6FittingLabel = "Strategy unavailable";
     }
   } else if (hasContext) {
     stage6Evidence = "pipeline_contract";
-    const imbStrat = modelContext!.imbalanceStrategy;
-    if (imbStrat === "original") {
-      stage6Status = "not_applicable";
-      stage6Desc =
-        "Original class distribution: Evaluated on natural 1:59 imbalance ratio without resampling or loss reweighting.";
-      stage6Detail = "Original ratio (1:59) preserved · No resampling or weighting";
-      stage6FittingType = "not_applicable";
-      stage6FittingLabel = "Natural distribution (no resampling)";
-    } else if (imbStrat === "smote") {
-      stage6Status = "applied";
-      stage6Desc =
-        "SMOTE synthetic oversampling applied strictly within training folds; never applied to validation or test partitions.";
-      stage6Detail = "SMOTE oversampling confined to training partition";
-      stage6FittingType = "fitted_train_only";
-      stage6FittingLabel = "Training partition only";
-    } else if (imbStrat === "class_weight" || imbStrat === "weighted") {
-      stage6Status = "applied";
-      stage6Desc = "Asymmetric positive class loss weighting applied inside training objective.";
-      stage6Detail = "Loss weighting applied to positive class";
-      stage6FittingType = "fitted_train_only";
-      stage6FittingLabel = "Loss weighting";
+    const rawImb = modelContext!.imbalanceStrategy;
+    const imbStrat = typeof rawImb === "string" ? rawImb.toLowerCase().trim() : undefined;
+    if (imbStrat && isSupportedImbalanceStrategy(imbStrat)) {
+      if (imbStrat === "original") {
+        stage6Status = "not_applicable";
+        stage6Desc =
+          "Original class distribution: Evaluated on natural 1:59 imbalance ratio without resampling or loss reweighting.";
+        stage6Detail = "Original ratio (1:59) preserved · No resampling or weighting";
+        stage6FittingType = "not_applicable";
+        stage6FittingLabel = "Natural distribution (no resampling)";
+      } else if (imbStrat === "smote") {
+        stage6Status = "applied";
+        stage6Desc =
+          "SMOTE synthetic oversampling applied strictly within training folds; never applied to validation or test partitions.";
+        stage6Detail = "SMOTE oversampling confined to training partition";
+        stage6FittingType = "fitted_train_only";
+        stage6FittingLabel = "Training partition only";
+      } else if (imbStrat === "class_weight" || imbStrat === "weighted") {
+        stage6Status = "applied";
+        stage6Desc = "Asymmetric positive class loss weighting applied inside training objective.";
+        stage6Detail = "Loss weighting applied to positive class";
+        stage6FittingType = "fitted_train_only";
+        stage6FittingLabel = "Loss weighting";
+      }
     } else if (imbStrat) {
-      stage6Status = "applied";
-      stage6Desc = `${imbStrat} strategy applied inside training partition.`;
-      stage6Detail = `${imbStrat} applied in training`;
-      stage6FittingType = "fitted_train_only";
-      stage6FittingLabel = "Training partition only";
+      stage6Status = "unavailable";
+      stage6Desc = `Unrecognized class-imbalance handling strategy "${rawImb}". Evidence unavailable.`;
+      stage6Detail = "Evidence unavailable (unrecognized strategy)";
+      stage6FittingType = "not_applicable";
+      stage6FittingLabel = "Strategy unavailable";
     } else if (modelContext!.configuration === null || modelContext!.configuration === undefined) {
       stage6Status = "unavailable";
       stage6Desc = "Class-imbalance handling strategy is not recorded in historical metadata.";

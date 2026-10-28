@@ -20,7 +20,7 @@ export function computeIllustrativeCost(
   fp?: number | null,
   fn?: number | null,
   persistedCost?: number | null,
-  scopeNote?: string | null,
+  explicitReason?: string | null,
 ): IllustrativeCostResult {
   const hasFp = typeof fp === "number" && Number.isFinite(fp) && fp >= 0;
   const hasFn = typeof fn === "number" && Number.isFinite(fn) && fn >= 0;
@@ -41,8 +41,11 @@ export function computeIllustrativeCost(
 
   let discrepancyNote: string | null = null;
   if (hasDiscrepancy) {
-    const reason = scopeNote || "differing evaluation scope or threshold assumptions";
-    discrepancyNote = `Persisted estimate: ${persistedCost} (differs from illustrative score due to ${reason})`;
+    if (explicitReason && explicitReason.trim().length > 0) {
+      discrepancyNote = `Persisted estimate: ${persistedCost}. This differs from the calculated illustrative score of ${calculatedCost} (${explicitReason.trim()}).`;
+    } else {
+      discrepancyNote = `Persisted estimate: ${persistedCost}. This differs from the calculated illustrative score of ${calculatedCost}.`;
+    }
   }
 
   return {

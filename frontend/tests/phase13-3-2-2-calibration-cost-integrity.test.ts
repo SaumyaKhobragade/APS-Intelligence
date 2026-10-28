@@ -293,7 +293,7 @@ describe("Phase 13.3.2.2 — Calibration, Cost & Execution Evidence Integrity", 
     expect(res.persistedCost).toBe(500);
     expect(res.hasDiscrepancy).toBe(true);
     expect(res.discrepancyNote).toContain("Persisted estimate: 500");
-    expect(res.discrepancyNote).toContain("differs from illustrative score");
+    expect(res.discrepancyNote).toContain("differs from the calculated illustrative score of 245");
 
     // Check display in ModelDetailsPanel
     const modelWithDiscrepancy: ModelEvaluation = {

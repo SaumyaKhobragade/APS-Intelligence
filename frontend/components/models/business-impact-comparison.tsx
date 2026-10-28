@@ -54,7 +54,7 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
         <div className="border-t border-charcoal bg-charcoal p-6 text-white sm:p-8">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Illustrative validation cost</p>
           <p className="mt-6 font-display text-5xl leading-[0.9] tracking-[-0.05em]">False negatives carry the larger weight.</p>
-          <p className="mt-6 text-sm leading-6 text-silver/75">The displayed costs come from the persisted validation metric configuration. Use this comparison as an illustrative decision aid, not as measured operational fleet cost.</p>
+          <p className="mt-6 text-sm leading-6 text-silver/75">The displayed illustrative scores are calculated directly from confusion matrix false positive and false negative counts using the project&apos;s established unitless weights (FP × 1 + FN × 10). Use this comparison as an illustrative decision aid, not as actual operational fleet cost.</p>
           <div className="mt-10 border-t border-white/15 pt-5 font-mono text-[10px] uppercase leading-6 tracking-[0.1em] text-silver/65">
             Inspection / 1 weight per false positive<br />
             Missed failure / 10 weight per false negative

@@ -86,7 +86,7 @@ function ModelDetailsPanelComponent({ model }: ModelDetailsPanelProps) {
   const fpCount = model.confusionMatrix?.falsePositive ?? model.businessImpact?.falsePositiveCount;
   const fnCount = model.confusionMatrix?.falseNegative ?? model.businessImpact?.falseNegativeCount;
   const persistedCost = model.businessImpact?.estimatedCost;
-  const costInfo = computeIllustrativeCost(fpCount, fnCount, persistedCost, model.evaluationScope);
+  const costInfo = computeIllustrativeCost(fpCount, fnCount, persistedCost);
 
   return (
     <section

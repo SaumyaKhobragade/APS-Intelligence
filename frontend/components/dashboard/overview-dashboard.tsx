@@ -27,17 +27,17 @@ function OverviewDashboard({ snapshot }: OverviewDashboardProps) {
       <section aria-labelledby="candidate-lifecycle-heading" className="border-b border-line bg-surface px-5 py-6 sm:px-8 lg:px-10">
         <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">Candidate lifecycle status</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Model evaluation overview</p>
             <h2 id="candidate-lifecycle-heading" className="mt-2 font-display text-2xl tracking-[-0.03em] text-ink sm:text-3xl">
-              {snapshot.candidateLabel ?? "Final validation candidate — not production approved"}
+              Phase 9 Validation Candidate — CatBoost Native Imbalance
             </h2>
             <p className="mt-2 text-xs leading-5 text-muted">
-              Evaluated on frozen validation split with isotonic calibration. Scored at frozen threshold {snapshot.candidateThreshold?.toFixed(3) ?? "0.115"}. Not approved for production inference.
+              Evaluated on frozen validation split with isotonic probability calibration (threshold {snapshot.candidateThreshold?.toFixed(3) ?? "0.115"}). Distinct from top uncalibrated historical run. Pending operational deployment signoff.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="signal">Validation scope</Badge>
-            <Badge variant="neutral">Status / {snapshot.candidateStatus ?? "evaluated"}</Badge>
+            <Badge variant="neutral">Status / Evaluated (Unapproved)</Badge>
             {snapshot.candidateThreshold !== undefined ? (
               <Badge variant="neutral">Frozen threshold {snapshot.candidateThreshold.toFixed(3)}</Badge>
             ) : null}

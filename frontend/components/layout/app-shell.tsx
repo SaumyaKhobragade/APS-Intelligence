@@ -80,7 +80,7 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       <div className="mt-auto border-t border-line pt-5">
         <div className="flex items-center justify-between text-xs text-muted">
            <span className="inline-flex items-center gap-2">
-             <span className="size-1.5 rounded-full bg-success" /> FastAPI service
+             <span className="size-1.5 rounded-full bg-success" /> API Service
           </span>
           <span className="font-mono text-[10px]">v0.2</span>
         </div>
@@ -133,7 +133,7 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Pe
               <span className="font-mono text-[10px] uppercase tracking-[0.12em]">{metadata.eyebrow}</span>
             </div>
             <div className="flex items-center gap-3">
-              <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local backend</Badge>
+              <Badge variant="neutral"><span className="size-1.5 rounded-full bg-success" /> Operational</Badge>
               <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
                 <Menu aria-hidden="true" className="size-4" />
               </Button>

@@ -36,7 +36,7 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
   const maxF1 = internalPoints.reduce((best, current) => current.f1Score > best.f1Score ? current : best, internalPoints[0] ?? frozen);
   const minimumCost = recommendation("minimum_cost", "Frozen minimum-cost threshold / external validation", frozen, "The frozen threshold was selected by minimum illustrative cost on the internal OOF policy subset and assessed on external validation.");
   const maximumF1 = recommendation("maximum_f1", "Internal maximum-F1 comparison", maxF1, "Persisted internal threshold-selection evidence; not a replacement for the frozen policy.");
-  const defaultRecommendation = recommendation("default", "Frozen candidate operating point", frozen, "The Phase 9 candidate is displayed read-only at its persisted threshold.");
+  const defaultRecommendation = recommendation("default", "Frozen candidate operating point", frozen, "The Phase 9 candidate is preserved at its frozen evaluation threshold (0.115).");
   const calibrationCurve: CalibrationPoint[] = calibration.reliability_curve.flatMap((point) => {
     const predicted = point.predicted_probability;
     const observed = point.observed_failure_rate;
@@ -121,6 +121,11 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
   };
 }
 
-function recommendation(kind: ThresholdRecommendation["kind"], label: string, metrics: ThresholdMetrics, explanation: string): ThresholdRecommendation {
+function recommendation(
+  kind: ThresholdRecommendation["kind"],
+  label: string,
+  metrics: ThresholdMetrics,
+  explanation: string,
+): ThresholdRecommendation {
   return { kind, label, metrics, explanation };
 }

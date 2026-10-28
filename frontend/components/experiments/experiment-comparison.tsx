@@ -7,34 +7,187 @@ import { Select } from "@/components/ui/select";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
 import type { ExperimentHistoryRecord } from "@/types";
 
-interface ExperimentComparisonProps { experiments: ExperimentHistoryRecord[]; selectedIds: string[]; onSelectionChange: (ids: string[]) => void; }
+interface ExperimentComparisonProps {
+  experiments: ExperimentHistoryRecord[];
+  selectedIds: string[];
+  onSelectionChange: (ids: string[]) => void;
+}
 type ComparisonMetric = "prAuc" | "precision" | "recall" | "f1Score" | "businessCost";
 
 function ExperimentComparison({ experiments, selectedIds, onSelectionChange }: ExperimentComparisonProps) {
-  const selected = selectedIds.map((id) => experiments.find((experiment) => experiment.id === id)).filter((experiment): experiment is ExperimentHistoryRecord => Boolean(experiment));
+  const selected = selectedIds
+    .map((id) => experiments.find((experiment) => experiment.id === id))
+    .filter((experiment): experiment is ExperimentHistoryRecord => Boolean(experiment));
   const [sortKey, setSortKey] = React.useState<ComparisonMetric>("businessCost");
   const [descending, setDescending] = React.useState(false);
   const compatible = selected.length < 2 || new Set(selected.map((experiment) => experiment.details.datasetInformation.compatibilityKey)).size === 1;
   const ordered = [...selected].sort((a, b) => {
-    const value = (experiment: ExperimentHistoryRecord): number => { const metrics = experiment.evaluationResults; if (sortKey === "businessCost") return metrics.businessImpact?.estimatedCost ?? Number.POSITIVE_INFINITY; return metrics[sortKey] ?? Number.NEGATIVE_INFINITY; };
+    const value = (experiment: ExperimentHistoryRecord) => {
+      const result = experiment.evaluationResults;
+      if (sortKey === "businessCost") return result.businessImpact?.estimatedCost ?? 0;
+      return result[sortKey] ?? 0;
+    };
     return (value(a) - value(b)) * (descending ? -1 : 1);
   });
 
-  function addExperiment(id: string) { if (!selectedIds.includes(id) && selectedIds.length < 4) onSelectionChange([...selectedIds, id]); }
-  function removeExperiment(id: string) { onSelectionChange(selectedIds.filter((selectedId) => selectedId !== id)); }
-  function toggleSort(key: ComparisonMetric) { if (sortKey === key) setDescending((value) => !value); else { setSortKey(key); setDescending(false); } }
+  function addExperiment(id: string) {
+    if (!selectedIds.includes(id) && selectedIds.length < 4) onSelectionChange([...selectedIds, id]);
+  }
+  function removeExperiment(id: string) {
+    onSelectionChange(selectedIds.filter((selectedId) => selectedId !== id));
+  }
+  function toggleSort(key: ComparisonMetric) {
+    if (sortKey === key) setDescending((value) => !value);
+    else {
+      setSortKey(key);
+      setDescending(false);
+    }
+  }
 
-  return <section id="experiment-comparison" aria-labelledby="experiment-comparison-heading" className="border-b border-line bg-canvas-deep/45 px-5 py-10 sm:px-8 lg:px-10 lg:py-14"><div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">05 / Experiment comparison</p><h2 id="experiment-comparison-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Compare the trade-offs side by side.</h2><p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Select two to four runs. Results are highlighted by metric, but no single experiment is called universally best.</p></div><Badge variant="signal"><GitCompareArrows aria-hidden="true" className="size-3" /> {selected.length} / 4 selected</Badge></div><div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-end"><div className="w-full lg:max-w-md"><label htmlFor="comparison-add" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Add experiment</label><Select id="comparison-add" value="" onChange={(event) => addExperiment(event.target.value)} options={[{ value: "", label: "Select a registry record" }, ...experiments.filter((experiment) => !selectedIds.includes(experiment.id)).map((experiment) => ({ value: experiment.id, label: `${experiment.id} / ${experiment.name}` }))]} disabled={selected.length >= 4} /></div><div className="flex flex-wrap gap-2">{selected.map((experiment) => <button key={experiment.id} type="button" className="inline-flex items-center gap-2 border border-line-strong bg-surface px-3 py-2 text-xs text-ink hover:border-signal" onClick={() => removeExperiment(experiment.id)}>{experiment.id}<X aria-hidden="true" className="size-3 text-muted" /></button>)}</div></div>{selected.length < 2 ? <div className="mt-8 border border-dashed border-line-strong bg-surface p-8 text-center"><p className="font-display text-2xl text-ink">Select at least two compatible runs.</p><p className="mt-2 text-sm text-muted">Comparison metrics and visual columns will appear once the registry has two selected records.</p></div> : <><div className={`mt-8 flex items-start gap-3 border-l-2 p-4 ${compatible ? "border-success bg-success/10" : "border-signal bg-signal-wash"}`}><GitCompareArrows aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${compatible ? "text-success" : "text-signal"}`} /><p className="text-sm leading-6 text-muted">{compatible ? "Selected experiments share a compatible evaluation protocol for this demonstration." : "Compatibility warning: selected records use different dataset or evaluation protocols. Treat side-by-side rankings as exploratory only."}</p></div><div className="mt-8 overflow-x-auto border-y border-line"><div className="min-w-[62rem]"><div className="grid grid-cols-[15rem_repeat(4,minmax(10rem,1fr))] border-b border-line bg-surface px-3 py-3 font-mono text-[10px] uppercase tracking-[0.1em] text-muted"><span>Metric</span>{ordered.map((experiment) => <span key={experiment.id} className="truncate">{experiment.modelName}<br /><span className="text-[9px] text-line-strong">{experiment.id}</span></span>)}</div>{(["prAuc", "precision", "recall", "f1Score", "businessCost", "falsePositiveCount", "falseNegativeCount", "classificationThreshold", "trainingDurationSeconds"] as const).map((metric) => <ComparisonRow key={metric} label={metricLabel(metric)} metric={metric} experiments={ordered} onSort={metric === "prAuc" || metric === "precision" || metric === "recall" || metric === "f1Score" || metric === "businessCost" ? () => toggleSort(metric) : undefined} sortActive={sortKey === metric} descending={descending} />)}</div></div></>}</section>;
+  return (
+    <section id="experiment-comparison" aria-labelledby="experiment-comparison-heading" className="border-b border-line bg-canvas-deep/45 px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
+      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">04 / Experiment comparison</p>
+          <h2 id="experiment-comparison-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Compare the trade-offs side by side.</h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Select two to four runs. Results are highlighted by metric, but no single experiment is called universally best.</p>
+        </div>
+        <Badge variant="signal"><GitCompareArrows aria-hidden="true" className="size-3" /> {selected.length} / 4 selected</Badge>
+      </div>
+      <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-end">
+        <div className="w-full lg:max-w-md">
+          <label htmlFor="comparison-add" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Add experiment</label>
+          <Select
+            id="comparison-add"
+            value=""
+            onChange={(event) => addExperiment(event.target.value)}
+            options={[
+              { value: "", label: "Select a registry record" },
+              ...experiments.filter((experiment) => !selectedIds.includes(experiment.id)).map((experiment) => ({ value: experiment.id, label: `${experiment.id} / ${experiment.name}` })),
+            ]}
+            disabled={selected.length >= 4}
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {selected.map((experiment) => (
+            <button key={experiment.id} type="button" className="inline-flex items-center gap-2 border border-line-strong bg-surface px-3 py-2 text-xs text-ink hover:border-signal" onClick={() => removeExperiment(experiment.id)}>
+              {experiment.id}<X aria-hidden="true" className="size-3 text-muted" />
+            </button>
+          ))}
+        </div>
+      </div>
+      {selected.length < 2 ? (
+        <div className="mt-8 border border-dashed border-line-strong bg-surface p-8 text-center">
+          <p className="font-display text-2xl text-ink">Select at least two compatible runs.</p>
+          <p className="mt-2 text-sm text-muted">Comparison metrics and visual columns will appear once the registry has two selected records.</p>
+        </div>
+      ) : (
+        <>
+          <div className={`mt-8 flex items-start gap-3 border-l-2 p-4 ${compatible ? "border-success bg-success/10" : "border-signal bg-signal-wash"}`}>
+            <GitCompareArrows aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${compatible ? "text-success" : "text-signal"}`} />
+            <p className="text-sm leading-6 text-muted">
+              {compatible
+                ? "Selected experiments share a compatible evaluation protocol."
+                : "Compatibility warning: selected records use different dataset or evaluation protocols. Treat side-by-side rankings as exploratory only."}
+            </p>
+          </div>
+          <div className="mt-8 overflow-x-auto border-y border-line">
+            <div className="min-w-[62rem]">
+              <div className="grid grid-cols-[15rem_repeat(4,minmax(10rem,1fr))] border-b border-line bg-surface px-3 py-3 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <span>Metric</span>
+                {ordered.map((experiment) => (
+                  <span key={experiment.id} className="truncate">
+                    {experiment.modelName}<br /><span className="text-[9px] text-line-strong">{experiment.id}</span>
+                  </span>
+                ))}
+              </div>
+              {(["prAuc", "precision", "recall", "f1Score", "businessCost", "falsePositiveCount", "falseNegativeCount", "classificationThreshold", "trainingDurationSeconds"] as const).map((metric) => (
+                <ComparisonRow
+                  key={metric}
+                  label={metricLabel(metric)}
+                  metric={metric}
+                  experiments={ordered}
+                  onSort={metric === "prAuc" || metric === "precision" || metric === "recall" || metric === "f1Score" || metric === "businessCost" ? () => toggleSort(metric) : undefined}
+                  sortActive={sortKey === metric}
+                  descending={descending}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
 }
 
 type RowMetric = "prAuc" | "precision" | "recall" | "f1Score" | "businessCost" | "falsePositiveCount" | "falseNegativeCount" | "classificationThreshold" | "trainingDurationSeconds";
-function ComparisonRow({ label, metric, experiments, onSort, sortActive, descending }: { label: string; metric: RowMetric; experiments: ExperimentHistoryRecord[]; onSort?: () => void; sortActive: boolean; descending: boolean }) {
-  const values = experiments.map((experiment) => { const result = experiment.evaluationResults; if (metric === "businessCost") return result.businessImpact?.estimatedCost; if (metric === "falsePositiveCount") return result.businessImpact?.falsePositiveCount; if (metric === "falseNegativeCount") return result.businessImpact?.falseNegativeCount; if (metric === "trainingDurationSeconds") return result.trainingDurationSeconds; return result[metric]; });
+function ComparisonRow({
+  label,
+  metric,
+  experiments,
+  onSort,
+  sortActive,
+  descending,
+}: {
+  label: string;
+  metric: RowMetric;
+  experiments: ExperimentHistoryRecord[];
+  onSort?: () => void;
+  sortActive: boolean;
+  descending: boolean;
+}) {
+  const values = experiments.map((experiment) => {
+    const result = experiment.evaluationResults;
+    if (metric === "businessCost") return result.businessImpact?.estimatedCost;
+    if (metric === "falsePositiveCount") return result.businessImpact?.falsePositiveCount;
+    if (metric === "falseNegativeCount") return result.businessImpact?.falseNegativeCount;
+    if (metric === "trainingDurationSeconds") return result.trainingDurationSeconds;
+    return result[metric];
+  });
   const numericValues = values.filter((value): value is number => value !== undefined);
   const best = metric === "businessCost" || metric === "falsePositiveCount" || metric === "falseNegativeCount" || metric === "trainingDurationSeconds" ? Math.min(...numericValues) : Math.max(...numericValues);
-  return <div className="grid grid-cols-[15rem_repeat(4,minmax(10rem,1fr))] border-b border-line px-3 py-4"><span>{onSort ? <button type="button" className="inline-flex items-center gap-1 text-left text-sm font-medium text-ink hover:text-signal" onClick={onSort}>{label}{sortActive ? descending ? <ArrowDown aria-hidden="true" className="size-3" /> : <ArrowUp aria-hidden="true" className="size-3" /> : null}</button> : <span className="text-sm font-medium text-ink">{label}</span>}</span>{values.map((value, index) => <span key={`${label}-${experiments[index].id}`} className={`font-mono text-xs ${value !== undefined && value === best ? "font-semibold text-signal" : "text-ink"}`}>{formatComparisonValue(metric, value)}</span>)}</div>;
+  return (
+    <div className="grid grid-cols-[15rem_repeat(4,minmax(10rem,1fr))] border-b border-line px-3 py-4">
+      <span>
+        {onSort ? (
+          <button type="button" className="inline-flex items-center gap-1 text-left text-sm font-medium text-ink hover:text-signal" onClick={onSort}>
+            {label}{sortActive ? descending ? <ArrowDown aria-hidden="true" className="size-3" /> : <ArrowUp aria-hidden="true" className="size-3" /> : null}
+          </button>
+        ) : (
+          <span className="text-sm font-medium text-ink">{label}</span>
+        )}
+      </span>
+      {values.map((value, index) => (
+        <span key={`${label}-${experiments[index].id}`} className={`font-mono text-xs ${value !== undefined && value === best ? "font-semibold text-signal" : "text-ink"}`}>
+          {formatComparisonValue(metric, value)}
+        </span>
+      ))}
+    </div>
+  );
 }
-function metricLabel(metric: RowMetric): string { return { prAuc: "PR-AUC", precision: "Precision", recall: "Recall", f1Score: "F1-score", businessCost: "Business cost", falsePositiveCount: "False positives", falseNegativeCount: "False negatives", classificationThreshold: "Threshold", trainingDurationSeconds: "Training duration" }[metric]; }
-function formatComparisonValue(metric: RowMetric, value?: number): string { if (value === undefined) return "—"; if (["precision", "recall", "f1Score"].includes(metric)) return formatPercent(value); if (metric === "businessCost") return formatCurrency(value); if (metric === "prAuc") return value.toFixed(3); if (metric === "classificationThreshold") return value.toFixed(2); if (metric === "trainingDurationSeconds") return `${formatNumber(value)}s`; return formatNumber(value); }
+
+function metricLabel(metric: RowMetric): string {
+  return {
+    prAuc: "PR-AUC",
+    precision: "Precision",
+    recall: "Recall",
+    f1Score: "F1-score",
+    businessCost: "Business cost",
+    falsePositiveCount: "False positives",
+    falseNegativeCount: "False negatives",
+    classificationThreshold: "Threshold",
+    trainingDurationSeconds: "Training duration",
+  }[metric];
+}
+
+function formatComparisonValue(metric: RowMetric, value?: number): string {
+  if (value === undefined) return "—";
+  if (["precision", "recall", "f1Score"].includes(metric)) return formatPercent(value);
+  if (metric === "businessCost") return formatCurrency(value);
+  if (metric === "prAuc") return value.toFixed(3);
+  if (metric === "classificationThreshold") return value.toFixed(2);
+  if (metric === "trainingDurationSeconds") return `${formatNumber(value)}s`;
+  return formatNumber(value);
+}
 
 export { ExperimentComparison };

@@ -89,18 +89,78 @@ function ExperimentWorkspace() {
   if (!isLoading && (error || !selected)) return <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Experiment history unavailable"}><div className="mx-auto max-w-[1600px] px-5 py-10 sm:px-8 lg:px-10">{error ? <ErrorState title="Experiment history unavailable" description={error} onRetry={() => void load()} /> : <EmptyState title="No persisted experiment records" description="The backend is connected, but the active registry contains no experiment runs." />}</div></AppShell>;
   if (!selected) return <AppShell><div className="mx-auto max-w-[1600px] px-5 py-10 sm:px-8 lg:px-10"><p role="status" className="border border-line bg-surface px-6 py-10 text-center text-sm text-muted">Loading persisted experiment history…</p></div></AppShell>;
 
-   const canExport = selected.source !== "historical";
-   return <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Persisted historical evidence"}><div className="mx-auto max-w-[1600px]">
-     <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><nav aria-label="Experiment History sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted"><a className="hover:text-signal" href="#experiment-registry">01 / Registry</a><a className="hover:text-signal" href="#experiment-filters">02 / Filters</a><a className="hover:text-signal" href="#experiment-details">04 / Details</a><a className="hover:text-signal" href="#experiment-comparison">05 / Compare</a><a className="hover:text-signal" href="#experiment-trends">06 / Trends</a><a className="hover:text-signal" href="#experiment-configuration">07 / Evidence</a></nav><div className="flex flex-wrap gap-2">{canExport ? <><Button variant="outline" size="sm" onClick={() => void downloadExperimentJson("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export JSON</Button><Button variant="outline" size="sm" onClick={() => void downloadExperimentCsv("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export CSV</Button><Button variant="signal" size="sm" onClick={() => void downloadExperimentPdf("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button></> : <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence / read-only</span>}<Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}><RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh registry</Button></div></div></section>
-    <section id="experiment-registry" className="border-b border-line bg-surface px-5 py-8 sm:px-8 lg:px-10"><div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Experiment registry</p><h2 className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Every run leaves a trace.</h2><p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Search, filter and reopen persisted experiments with their dataset and configuration fingerprints.</p></div><div className="flex flex-wrap items-center gap-3"><Badge variant="signal">{filtered.length} matching records</Badge><Badge variant="success">Backend registry</Badge></div></div><div className="mt-8"><ExperimentTable experiments={pageItems} selectedId={selectedId} sortKey={sortKey} descending={descending} onSort={handleSort} onSelect={(experiment) => void selectExperiment(experiment)} /></div><div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Page {safePage} / {totalPages} · {filtered.length} records</p><div className="flex gap-2"><Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={safePage >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div></section>
-     <ExperimentFilters experiments={experiments} search={search} model={model} strategy={strategy} status={status} type={type} dateFrom={dateFrom} dateTo={dateTo} onSearchChange={(value) => updateFilter(setSearch, value)} onModelChange={(value) => updateFilter(setModel, value)} onStrategyChange={(value) => updateFilter(setStrategy, value)} onStatusChange={(value) => updateFilter(setStatus, value)} onTypeChange={(value) => updateFilter(setType, value)} onDateFromChange={(value) => updateFilter(setDateFrom, value)} onDateToChange={(value) => updateFilter(setDateTo, value)} onReset={resetFilters} />
-    <ExperimentDetails experiment={selected} onExportJson={() => void downloadExperimentJson("experiment", selected.id)} onExportCsv={() => void downloadExperimentCsv("experiment", selected.id)} onExportPdf={() => void downloadExperimentPdf("experiment", selected.id)} />
-    <ExperimentComparison experiments={experiments} selectedIds={comparisonIds} onSelectionChange={setComparisonIds} />
-    <ExperimentTrends experiments={experiments} />
-    <ExperimentConfiguration configuration={selected.details.configurationSnapshot} onExport={() => void downloadExperimentJson("experiment", selected.id)} readOnly={selected.source === "historical"} />
-    {modelOptions.length ? <ExperimentCreation models={modelOptions} onSave={(request) => void saveConfiguration(request)} /> : null}
-    <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10"><div><p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Experiment history / end of view</p><p className="mt-2 text-sm text-ink">Exports are served by the centralized backend report and export endpoints.</p></div><Button variant="outline" asChild><a href="#experiment-registry">Back to registry <ArrowDown aria-hidden="true" className="size-3.5 rotate-180" /></a></Button></section>
-  </div></AppShell>;
+  const canExport = selected.source !== "historical";
+  return (
+    <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Persisted historical evidence"}>
+      <div className="mx-auto max-w-[1600px]">
+        <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <nav aria-label="Experiment History sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              <a className="hover:text-signal" href="#experiment-registry">01 / Registry</a>
+              <a className="hover:text-signal" href="#experiment-filters">02 / Filters</a>
+              <a className="hover:text-signal" href="#experiment-details">03 / Details</a>
+              <a className="hover:text-signal" href="#experiment-comparison">04 / Compare</a>
+              <a className="hover:text-signal" href="#experiment-trends">05 / Trends</a>
+              <a className="hover:text-signal" href="#experiment-configuration">06 / Evidence</a>
+              <a className="hover:text-signal" href="#experiment-creation">07 / Configurator</a>
+            </nav>
+            <div className="flex flex-wrap gap-2">
+              {canExport ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => void downloadExperimentJson("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export JSON</Button>
+                  <Button variant="outline" size="sm" onClick={() => void downloadExperimentCsv("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export CSV</Button>
+                  <Button variant="signal" size="sm" onClick={() => void downloadExperimentPdf("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button>
+                </>
+              ) : (
+                <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence / read-only</span>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
+                <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh registry
+              </Button>
+            </div>
+          </div>
+        </section>
+        <section id="experiment-registry" className="border-b border-line bg-surface px-5 py-8 sm:px-8 lg:px-10">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Experiment registry</p>
+              <h2 className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Every run leaves a trace.</h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Search, filter and reopen persisted experiments with their dataset and configuration fingerprints.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant="signal">{filtered.length} matching records</Badge>
+              <Badge variant="success">Backend registry</Badge>
+            </div>
+          </div>
+          <div className="mt-8">
+            <ExperimentTable experiments={pageItems} selectedId={selectedId} sortKey={sortKey} descending={descending} onSort={handleSort} onSelect={(experiment) => void selectExperiment(experiment)} />
+          </div>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Page {safePage} / {totalPages} · {filtered.length} records</p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
+              <Button size="sm" variant="outline" disabled={safePage >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button>
+            </div>
+          </div>
+        </section>
+        <ExperimentFilters experiments={experiments} search={search} model={model} strategy={strategy} status={status} type={type} dateFrom={dateFrom} dateTo={dateTo} onSearchChange={(value) => updateFilter(setSearch, value)} onModelChange={(value) => updateFilter(setModel, value)} onStrategyChange={(value) => updateFilter(setStrategy, value)} onStatusChange={(value) => updateFilter(setStatus, value)} onTypeChange={(value) => updateFilter(setType, value)} onDateFromChange={(value) => updateFilter(setDateFrom, value)} onDateToChange={(value) => updateFilter(setDateTo, value)} onReset={resetFilters} />
+        <ExperimentDetails experiment={selected} onExportJson={() => void downloadExperimentJson("experiment", selected.id)} onExportCsv={() => void downloadExperimentCsv("experiment", selected.id)} onExportPdf={() => void downloadExperimentPdf("experiment", selected.id)} />
+        <ExperimentComparison experiments={experiments} selectedIds={comparisonIds} onSelectionChange={setComparisonIds} />
+        <ExperimentTrends experiments={experiments} />
+        <ExperimentConfiguration configuration={selected.details.configurationSnapshot} onExport={() => void downloadExperimentJson("experiment", selected.id)} readOnly={selected.source === "historical"} />
+        {modelOptions.length ? <ExperimentCreation models={modelOptions} onSave={(request) => void saveConfiguration(request)} /> : null}
+        <section className="flex flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Experiment history / end of view</p>
+            <p className="mt-2 text-sm text-ink">Exports are served by the centralized backend report and export endpoints.</p>
+          </div>
+          <Button variant="outline" asChild>
+            <a href="#experiment-registry">Back to registry <ArrowDown aria-hidden="true" className="size-3.5 rotate-180" /></a>
+          </Button>
+        </section>
+      </div>
+    </AppShell>
+  );
 }
 
 export { ExperimentWorkspace };

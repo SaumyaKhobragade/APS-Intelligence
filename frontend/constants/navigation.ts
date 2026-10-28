@@ -58,7 +58,7 @@ export const pageMetadata: Record<string, { title: string; description: string; 
   },
   "/model-comparison": {
     title: "Model comparison",
-    description: "Compare trained artifacts against the precision-recall objective.",
+    description: "Compare model performance, decision thresholds, and evaluation results.",
     eyebrow: "03 / Data & analytics",
   },
   "/failure-prediction": {

@@ -29,7 +29,7 @@ function FeatureDetailsPanel({ feature }: FeatureDetailsPanelProps) {
         <Stat label="Std. dev." value={feature.standardDeviation === undefined ? "—" : feature.standardDeviation.toFixed(2)} icon={Ruler} />
       </div>
       <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/15 pt-4 font-mono text-[10px] uppercase tracking-[0.12em] text-silver/70"><span>Min / {feature.minimum === undefined ? "—" : feature.minimum.toFixed(2)}</span><span>Max / {feature.maximum === undefined ? "—" : feature.maximum.toFixed(2)}</span><span>Null count / {formatNumber(feature.missingCount)}</span></div>
-      <p className="mt-5 text-xs leading-5 text-silver/70">Descriptive statistics are demonstration metadata. The backend will provide exact profiles for the uploaded file.</p>
+      <p className="mt-5 text-xs leading-5 text-silver/70">Descriptive statistics reflect ingested training split distributions. Recomputed upon full partition reload.</p>
     </aside>
   );
 }

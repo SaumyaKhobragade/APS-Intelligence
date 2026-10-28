@@ -139,7 +139,7 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Pe
 
   return (
     <div className="min-h-screen bg-canvas">
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
         <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} backendStatus={backendStatus} />
         {mobileOpen ? (
           <button
@@ -160,15 +160,27 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Pe
               <span className="text-line-strong">/</span>
               <span className="font-mono text-[10px] uppercase tracking-[0.12em]">{metadata.eyebrow}</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               {backendStatus === "connected" ? (
-                <Badge variant="neutral"><span className="size-1.5 rounded-full bg-success" /> Backend connected</Badge>
+                <Badge variant="neutral" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-success" />
+                  <span className="hidden sm:inline">Backend connected</span>
+                  <span className="sm:hidden">Connected</span>
+                </Badge>
               ) : backendStatus === "unavailable" ? (
-                <Badge variant="signal"><span className="size-1.5 rounded-full bg-signal" /> Backend unavailable</Badge>
+                <Badge variant="signal" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-signal" />
+                  <span className="hidden sm:inline">Backend unavailable</span>
+                  <span className="sm:hidden">Offline</span>
+                </Badge>
               ) : (
-                <Badge variant="neutral"><span className="size-1.5 rounded-full bg-muted" /> Backend status unknown</Badge>
+                <Badge variant="neutral" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-muted" />
+                  <span className="hidden sm:inline">Backend status unknown</span>
+                  <span className="sm:hidden">Unknown</span>
+                </Badge>
               )}
-              <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
+              <Button size="icon" variant="ghost" className="lg:hidden shrink-0" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
                 <Menu aria-hidden="true" className="size-4" />
               </Button>
             </div>

@@ -190,18 +190,20 @@ function ThresholdWorkspace() {
       <div className="mx-auto max-w-[1600px]">
         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <nav aria-label="Threshold Optimization sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <a className="hover:text-signal" href="#model-selection">01 / Model</a>
-              <a className="hover:text-signal" href="#threshold-control">02 / Control</a>
-              <a className="hover:text-signal" href="#threshold-metrics">03 / Metrics</a>
-              <a className="hover:text-signal" href="#threshold-confusion-matrix">04 / Errors</a>
-              <a className="hover:text-signal" href="#business-cost">05 / Cost</a>
-              <a className="hover:text-signal" href="#performance-curves">06 / Curves</a>
-              <a className="hover:text-signal" href="#threshold-recommendations">07 / Recommendations</a>
-              <a className="hover:text-signal" href="#model-threshold-comparison">08 / Comparison</a>
-              <a className="hover:text-signal" href="#calibration">09 / Calibration</a>
-              <a className="hover:text-signal" href="#operational-recommendation">10 / Decision support</a>
-            </nav>
+            <div className="min-w-0 max-w-full overflow-x-auto no-scrollbar py-1">
+              <nav aria-label="Threshold Optimization sections" className="flex items-center gap-x-5 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <a className="hover:text-signal shrink-0" href="#model-selection">01 / Model</a>
+                <a className="hover:text-signal shrink-0" href="#threshold-control">02 / Control</a>
+                <a className="hover:text-signal shrink-0" href="#threshold-metrics">03 / Metrics</a>
+                <a className="hover:text-signal shrink-0" href="#threshold-confusion-matrix">04 / Errors</a>
+                <a className="hover:text-signal shrink-0" href="#business-cost">05 / Cost</a>
+                <a className="hover:text-signal shrink-0" href="#performance-curves">06 / Curves</a>
+                <a className="hover:text-signal shrink-0" href="#threshold-recommendations">07 / Recommendations</a>
+                <a className="hover:text-signal shrink-0" href="#model-threshold-comparison">08 / Comparison</a>
+                <a className="hover:text-signal shrink-0" href="#calibration">09 / Calibration</a>
+                <a className="hover:text-signal shrink-0" href="#operational-recommendation">10 / Decision support</a>
+              </nav>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
               <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh evaluation
             </Button>

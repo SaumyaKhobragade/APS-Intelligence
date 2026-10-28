@@ -41,6 +41,8 @@ function KpiStrip({ snapshot }: KpiStripProps) {
             label="Top validation model"
             value={bestModel ? bestModel.modelName.replace(" Regression", "") : "—"}
             detail="Highest ranked validation run"
+            valueClassName="truncate text-xl sm:text-2xl"
+            title={bestModel ? bestModel.modelName : undefined}
             className="border-l-0 px-0 sm:border-l sm:pl-5"
           />
           <MetricDisplay

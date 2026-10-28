@@ -659,6 +659,51 @@ class HistoricalEvidenceService:
                 )
         raise ResourceNotFoundError(f"Historical experiment '{reference_id}' was not found.")
 
+    def training_run_detail(self, reference_id: str) -> HistoricalRunDetail:
+        reference_id = _safe_component(reference_id)
+        for row in self._phase3_rows():
+            if row.get("run_id") == reference_id:
+                return self._detail_from_phase3(row)
+        raise ResourceNotFoundError(f"Historical training run '{reference_id}' was not found.")
+
+    def get_historical_detail(self, reference_type: str, reference_id: str) -> HistoricalRunDetail | None:
+        try:
+            clean_id = _safe_component(reference_id)
+        except Exception:
+            return None
+
+        if reference_type == "training_run":
+            for row in self._phase3_rows():
+                if row.get("run_id") == clean_id:
+                    return self._detail_from_phase3(row)
+            try:
+                return self.experiment_detail(clean_id)
+            except ResourceNotFoundError:
+                return None
+
+        if reference_type == "experiment":
+            try:
+                return self.experiment_detail(clean_id)
+            except ResourceNotFoundError:
+                pass
+            for comp_summary in self._phase9_comparison_rows():
+                if comp_summary.reference_id == clean_id:
+                    return HistoricalRunDetail(
+                        **comp_summary.model_dump(),
+                        configuration={},
+                        hyperparameters=comp_summary.cross_validation.model_dump() if comp_summary.cross_validation else {},
+                        metrics=[comp_summary.validation_metrics] if comp_summary.validation_metrics else [],
+                        artifacts=[],
+                        availability=[HistoricalAvailability(name="phase9_comparison", status="available", message="Phase 9 model comparison record.")],
+                        provenance=["Read from artifacts/phase9/phase9-final-validation/model_comparison.csv."],
+                        error_message=None,
+                    )
+            for row in self._phase3_rows():
+                if row.get("run_id") == clean_id:
+                    return self._detail_from_phase3(row)
+
+        return None
+
     def _phase9_comparison_rows(self) -> list[HistoricalRunSummary]:
         path = self.phase9_root / "model_comparison.csv"
         if not path.is_file():

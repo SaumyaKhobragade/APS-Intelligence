@@ -89,31 +89,27 @@ function ExperimentWorkspace() {
   if (!isLoading && (error || !selected)) return <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Experiment history unavailable"}><div className="mx-auto max-w-[1600px] px-5 py-10 sm:px-8 lg:px-10">{error ? <ErrorState title="Experiment history unavailable" description={error} onRetry={() => void load()} /> : <EmptyState title="No persisted experiment records" description="The backend is connected, but the active registry contains no experiment runs." />}</div></AppShell>;
   if (!selected) return <AppShell><div className="mx-auto max-w-[1600px] px-5 py-10 sm:px-8 lg:px-10"><p role="status" className="border border-line bg-surface px-6 py-10 text-center text-sm text-muted">Loading persisted experiment history…</p></div></AppShell>;
 
-  const canExport = selected.source !== "historical";
+  const exportRefType = selected.phase === "phase3" || selected.id.startsWith("run-") ? "training_run" : "experiment";
   return (
     <AppShell onRefresh={() => void load(true)} isRefreshing={isRefreshing} lastUpdated={snapshot?.lastUpdated ?? "Persisted historical evidence"}>
       <div className="mx-auto max-w-[1600px]">
         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <nav aria-label="Experiment History sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <a className="hover:text-signal" href="#experiment-registry">01 / Registry</a>
-              <a className="hover:text-signal" href="#experiment-filters">02 / Filters</a>
-              <a className="hover:text-signal" href="#experiment-details">03 / Details</a>
-              <a className="hover:text-signal" href="#experiment-comparison">04 / Compare</a>
-              <a className="hover:text-signal" href="#experiment-trends">05 / Trends</a>
-              <a className="hover:text-signal" href="#experiment-configuration">06 / Evidence</a>
-              <a className="hover:text-signal" href="#experiment-creation">07 / Configurator</a>
-            </nav>
+            <div className="min-w-0 max-w-full overflow-x-auto no-scrollbar py-1">
+              <nav aria-label="Experiment History sections" className="flex items-center gap-x-5 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <a className="hover:text-signal shrink-0" href="#experiment-registry">01 / Registry</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-filters">02 / Filters</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-details">03 / Details</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-comparison">04 / Compare</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-trends">05 / Trends</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-configuration">06 / Evidence</a>
+                <a className="hover:text-signal shrink-0" href="#experiment-creation">07 / Configurator</a>
+              </nav>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {canExport ? (
-                <>
-                  <Button variant="outline" size="sm" onClick={() => void downloadExperimentJson("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export JSON</Button>
-                  <Button variant="outline" size="sm" onClick={() => void downloadExperimentCsv("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export CSV</Button>
-                  <Button variant="signal" size="sm" onClick={() => void downloadExperimentPdf("experiment", selected.id)}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button>
-                </>
-              ) : (
-                <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence / read-only</span>
-              )}
+              <Button variant="outline" size="sm" onClick={() => void downloadExperimentJson(exportRefType, selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export JSON</Button>
+              <Button variant="outline" size="sm" onClick={() => void downloadExperimentCsv(exportRefType, selected.id)}><Download aria-hidden="true" className="size-3.5" /> Export CSV</Button>
+              <Button variant="signal" size="sm" onClick={() => void downloadExperimentPdf(exportRefType, selected.id)}><Download aria-hidden="true" className="size-3.5" /> PDF report</Button>
               <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
                 <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh registry
               </Button>

@@ -124,16 +124,18 @@ export default function ModelComparisonPage() {
       <div className="mx-auto max-w-[1600px]">
         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <nav aria-label="Model Comparison sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <a className="hover:text-signal" href="#model-overview">01 / Overview</a>
-              <a className="hover:text-signal" href="#metrics-table">02 / Metrics</a>
-              <a className="hover:text-signal" href="#precision-recall">03 / Curves</a>
-              <a className="hover:text-signal" href="#confusion-matrix">04 / Errors</a>
-              <a className="hover:text-signal" href="#feature-importance">05 / Features</a>
-              <a className="hover:text-signal" href="#model-details">06 / Details</a>
-              <a className="hover:text-signal" href="#business-impact">07 / Cost</a>
-              <a className="hover:text-signal" href="#official-test">08 / Official test</a>
-            </nav>
+            <div className="min-w-0 max-w-full overflow-x-auto no-scrollbar py-1">
+              <nav aria-label="Model Comparison sections" className="flex items-center gap-x-5 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <a className="hover:text-signal shrink-0" href="#model-overview">01 / Overview</a>
+                <a className="hover:text-signal shrink-0" href="#metrics-table">02 / Metrics</a>
+                <a className="hover:text-signal shrink-0" href="#precision-recall">03 / Curves</a>
+                <a className="hover:text-signal shrink-0" href="#confusion-matrix">04 / Errors</a>
+                <a className="hover:text-signal shrink-0" href="#feature-importance">05 / Features</a>
+                <a className="hover:text-signal shrink-0" href="#model-details">06 / Details</a>
+                <a className="hover:text-signal shrink-0" href="#business-impact">07 / Cost</a>
+                <a className="hover:text-signal shrink-0" href="#official-test">08 / Official test</a>
+              </nav>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
               <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh comparison
             </Button>

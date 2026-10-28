@@ -60,7 +60,16 @@ export default function DatasetExplorerPage() {
       <div className="mx-auto max-w-[1600px]">
          <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <nav aria-label="Dataset Explorer sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted"><a className="hover:text-signal" href="#dataset-upload">01 / Import</a><a className="hover:text-signal" href="#dataset-overview">02 / Overview</a><a className="hover:text-signal" href="#data-quality">03 / Quality</a><a className="hover:text-signal" href="#class-distribution">04 / Classes</a><a className="hover:text-signal" href="#feature-analysis">05 / Features</a><a className="hover:text-signal" href="#preprocessing">06 / Splits</a></nav>
+            <div className="min-w-0 max-w-full overflow-x-auto no-scrollbar py-1">
+              <nav aria-label="Dataset Explorer sections" className="flex items-center gap-x-5 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <a className="hover:text-signal shrink-0" href="#dataset-upload">01 / Import</a>
+                <a className="hover:text-signal shrink-0" href="#dataset-overview">02 / Overview</a>
+                <a className="hover:text-signal shrink-0" href="#data-quality">03 / Quality</a>
+                <a className="hover:text-signal shrink-0" href="#class-distribution">04 / Classes</a>
+                <a className="hover:text-signal shrink-0" href="#feature-analysis">05 / Features</a>
+                <a className="hover:text-signal shrink-0" href="#preprocessing">06 / Splits</a>
+              </nav>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => void load(activeDatasetType, true)} disabled={isRefreshing}><RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh explorer</Button>
           </div>
         </section>

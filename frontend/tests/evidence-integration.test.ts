@@ -512,6 +512,121 @@ describe("Phase 11 Historical Evidence & Acceptance Integration Tests", () => {
       expect(model.calibrationCurve).toHaveLength(1);
       expect(model.costWeights).toEqual({ falsePositive: 1.0, falseNegative: 10.0 });
     });
+
+    it("locks threshold checkpoint selection to genuine persisted checkpoints and preserves frozen policy 0.115", async () => {
+      const mockThresholdWithMultiplePoints = {
+        evidence_version: "phase11.3.v1",
+        reference_id: "phase9-final-validation-candidate",
+        model_name: "catboost",
+        model_version: "phase9.1.0",
+        calibration_method: "isotonic",
+        frozen_threshold: 0.115,
+        threshold_objective: "Minimum illustrative cost",
+        selection_scope: "Phase 9 OOF cross-validation policy tuning",
+        validation: {
+          scope: "validation",
+          label: "External validation",
+          threshold: 0.115,
+          pr_auc: 0.8011077,
+          roc_auc: 0.994072,
+          precision: 0.488,
+          recall: 0.915,
+          f1_score: 0.6365,
+          false_positive_cost: 1.0,
+          false_negative_cost: 10.0,
+          estimated_business_cost: 362.0,
+          confusion_matrix: { true_negative: 11608, false_positive: 192, false_negative: 17, true_positive: 183 },
+          source_reference: "artifacts/phase9/validation_metrics.json",
+        },
+        threshold_points: [
+          {
+            threshold: 0.115,
+            precision: 0.488,
+            recall: 0.915,
+            f1_score: 0.6365,
+            false_positive: 192,
+            false_negative: 17,
+            true_positive: 183,
+            true_negative: 11608,
+            business_cost: 362.0,
+            source_reference: "minimum_cost",
+          },
+          {
+            threshold: 0.305,
+            precision: 0.720,
+            recall: 0.785,
+            f1_score: 0.751,
+            false_positive: 58,
+            false_negative: 43,
+            true_positive: 157,
+            true_negative: 11742,
+            business_cost: 488.0,
+            source_reference: "maximum_f1",
+          },
+        ],
+        availability: [],
+        provenance: ["Threshold frozen from Phase 9 OOF evaluation."],
+      } as unknown as BackendHistoricalThresholdResponse;
+
+      const mockCalibration = {
+        evidence_version: "phase11.3.v1",
+        reference_id: "phase9-final-validation-candidate",
+        model_name: "catboost",
+        model_version: "phase9.1.0",
+        selected_method: "isotonic",
+        evaluation_scope: "External validation",
+        metrics: { brier_score: 0.0071, log_loss: 0.025, expected_calibration_error: 0.0015 },
+        reliability_curve: [{ bin_label: "bin_1", predicted_probability: 0.1, observed_failure_rate: 0.09, sample_count: 500 }],
+        artifacts: [],
+        availability: [],
+        provenance: ["Isotonic calibration applied."],
+      } as unknown as BackendHistoricalCalibrationResponse;
+
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/historical-evidence/thresholds/")) return Promise.resolve(jsonResponse(mockThresholdWithMultiplePoints));
+        if (url.includes("/historical-evidence/calibration/")) return Promise.resolve(jsonResponse(mockCalibration));
+        return Promise.reject(new Error(`Unhandled route: ${url}`));
+      }));
+
+      const snapshot = await fetchThresholdSnapshot();
+      const model = snapshot.models[0];
+
+      // 1. Verify available thresholds originate from genuine persisted checkpoints
+      expect(model.thresholdCurve).toHaveLength(2);
+      expect(model.thresholdCurve[0].threshold).toBeCloseTo(0.115);
+      expect(model.thresholdCurve[1].threshold).toBeCloseTo(0.305);
+
+      // 2. Verify frozen policy metrics match threshold 0.115 exactly
+      const frozenPoint = model.thresholdCurve[0];
+      expect(frozenPoint.precision).toBeCloseTo(0.488);
+      expect(frozenPoint.recall).toBeCloseTo(0.915);
+      expect(frozenPoint.f1Score).toBeCloseTo(0.6365);
+      expect(frozenPoint.falsePositiveCount).toBe(192);
+      expect(frozenPoint.falseNegativeCount).toBe(17);
+      expect(frozenPoint.businessCost).toBe(362.0); // 192 * 1 + 17 * 10 = 362
+
+      // 3. Verify alternative checkpoint displays matching metrics exactly
+      const altPoint = model.thresholdCurve[1];
+      expect(altPoint.precision).toBeCloseTo(0.720);
+      expect(altPoint.recall).toBeCloseTo(0.785);
+      expect(altPoint.f1Score).toBeCloseTo(0.751);
+      expect(altPoint.falsePositiveCount).toBe(58);
+      expect(altPoint.falseNegativeCount).toBe(43);
+      expect(altPoint.businessCost).toBe(488.0); // 58 * 1 + 43 * 10 = 488
+
+      // 4. Verify alternative checkpoint selection does not modify frozen policy evidence
+      expect(model.frozenThreshold).toBeCloseTo(0.115);
+      expect(model.defaultThreshold).toBeCloseTo(0.115);
+      expect(model.readOnly).toBe(true);
+
+      // 5. Verify recommendations select their actual persisted checkpoints
+      expect(model.recommendations.minimumCost.metrics.threshold).toBeCloseTo(0.115);
+      expect(model.recommendations.default.metrics.threshold).toBeCloseTo(0.115);
+      expect(model.recommendations.maximumF1.metrics.threshold).toBeCloseTo(0.305);
+
+      // 6. Reset target is frozen threshold 0.115
+      expect(model.defaultThreshold).toBe(0.115);
+    });
   });
 
   // 6. Phase 10 Official Test Evidence Separation
@@ -606,6 +721,109 @@ describe("Phase 11 Historical Evidence & Acceptance Integration Tests", () => {
       expect(evidence.integrity_flags.promotion_performed).toBe(false);
       expect(evidence.integrity_flags.retraining_performed).toBe(false);
       expect(evidence.candidate_label).toBe("Final validation candidate — not production approved");
+    });
+
+    it("verifies official-test business cost equals 564 (214*1 + 35*10) and correct FP/FN weight ordering", async () => {
+      const mockOfficialTest = {
+        evidence_version: "phase11.3.v1",
+        evaluation_id: "phase10-official-test-evaluation",
+        candidate_id: "phase9-final-validation-candidate",
+        evaluation_scope: "official_test",
+        model_name: "catboost",
+        imbalance_strategy: "class_weight",
+        calibration_method: "isotonic",
+        frozen_threshold: 0.115,
+        candidate_label: "Final validation candidate — not production approved",
+        metrics: {
+          scope: "official_test",
+          label: "Official test evaluation",
+          threshold: 0.115,
+          pr_auc: 0.863806,
+          roc_auc: 0.993536,
+          precision: 0.613718,
+          recall: 0.906667,
+          f1_score: 0.731970,
+          specificity: 0.986304,
+          balanced_accuracy: 0.946485,
+          accuracy: 0.984438,
+          false_positive_cost: 1.0,
+          false_negative_cost: 10.0,
+          estimated_business_cost: 564.0,
+          confusion_matrix: { true_negative: 15411, false_positive: 214, false_negative: 35, true_positive: 340 },
+          source_reference: "artifacts/phase10/official-test-evaluation/official_test_metrics.json",
+        },
+        confidence_intervals: {
+          pr_auc: { lower: 0.836307, upper: 0.890892 },
+          roc_auc: { lower: 0.988409, upper: 0.996406 },
+          precision: { lower: 0.583909, upper: 0.649626 },
+          recall: { lower: 0.877267, upper: 0.936000 },
+          f1: { lower: 0.705994, upper: 0.761166 },
+        },
+        confidence_interval_method: "stratified percentile bootstrap",
+        confidence_interval_replicates: 1000,
+        calibration_metrics: {
+          brier_score: 0.006978,
+          log_loss: 0.024511,
+          expected_calibration_error: 0.001427,
+        },
+        precision_recall_curve: {
+          precision: [0.5, 0.6137],
+          recall: [1.0, 0.9067],
+          thresholds: [0.01, 0.115],
+        },
+        roc_curve: {
+          false_positive_rate: [0.0, 0.0137],
+          true_positive_rate: [0.0, 0.9067],
+          thresholds: [1.0, 0.115],
+        },
+        reliability_curve: [],
+        artifacts: [],
+        integrity_flags: {
+          promotion_performed: false,
+          retraining_performed: false,
+          official_test_evaluated: true,
+        },
+        availability: [{ name: "official_test_artifacts", status: "available", message: "All official test artifacts verified." }],
+        provenance: ["Persisted official-test evaluation from Phase 10."],
+      } as unknown as BackendOfficialTestEvidenceResponse;
+
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(mockOfficialTest)));
+      const evidence = await fetchOfficialTestEvidence();
+
+      const fp = evidence.metrics.confusion_matrix?.false_positive ?? 0;
+      const fn = evidence.metrics.confusion_matrix?.false_negative ?? 0;
+      const fpWeight = evidence.metrics.false_positive_cost ?? 1.0;
+      const fnWeight = evidence.metrics.false_negative_cost ?? 10.0;
+
+      // 1. Verify exact weights: FP=1, FN=10
+      expect(fpWeight).toBe(1.0);
+      expect(fnWeight).toBe(10.0);
+
+      // 2. Verify official test cost formula: 214 * 1 + 35 * 10 = 564
+      const calculatedCost = fp * fpWeight + fn * fnWeight;
+      expect(calculatedCost).toBe(564.0);
+      expect(evidence.metrics.estimated_business_cost).toBe(564.0);
+
+      // 3. Verify ordering asymmetry: swapping weights yields completely different result
+      const swappedCost = fp * fnWeight + fn * fpWeight; // 214 * 10 + 35 * 1 = 2175
+      expect(swappedCost).toBe(2175.0);
+      expect(calculatedCost).not.toBe(swappedCost);
+
+      // 4. Verify separate asymmetric example
+      const testFp = 2;
+      const testFn = 5;
+      const orderedCost = testFp * fpWeight + testFn * fnWeight; // 2 * 1 + 5 * 10 = 52
+      const reversedCost = testFp * fnWeight + testFn * fpWeight; // 2 * 10 + 5 * 1 = 25
+      expect(orderedCost).toBe(52);
+      expect(reversedCost).toBe(25);
+      expect(orderedCost).not.toBe(reversedCost);
+
+      // 5. Verify official test terminology does not imply model selection
+      expect(evidence.evaluation_scope).toBe("official_test");
+      expect(evidence.metrics.scope).toBe("official_test");
+      expect(evidence.metrics.label).toBe("Official test evaluation");
+      expect(evidence.candidate_label).toContain("not production approved");
+      expect(evidence.integrity_flags.promotion_performed).toBe(false);
     });
   });
 

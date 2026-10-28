@@ -20,8 +20,8 @@ function ExperimentCreation({ models, onSave }: ExperimentCreationProps) {
   const [missingValueStrategy, setMissingValueStrategy] = React.useState("median_imputation");
   const [classImbalanceStrategy, setClassImbalanceStrategy] = React.useState("balanced_class_weights");
   const [classificationThreshold, setClassificationThreshold] = React.useState("0.115");
-  const [falsePositive, setFalsePositive] = React.useState("10");
-  const [falseNegative, setFalseNegative] = React.useState("500");
+  const [falsePositive, setFalsePositive] = React.useState("1");
+  const [falseNegative, setFalseNegative] = React.useState("10");
   const [saved, setSaved] = React.useState(false);
 
   function saveConfiguration(event: React.FormEvent<HTMLFormElement>) {
@@ -110,11 +110,11 @@ function ExperimentCreation({ models, onSave }: ExperimentCreationProps) {
               <Input id="new-threshold" type="number" min="0" max="1" step="0.005" value={classificationThreshold} onChange={(event) => setClassificationThreshold(event.target.value)} />
             </div>
             <div>
-              <label htmlFor="new-fp-cost" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">FP cost weight ($)</label>
+              <label htmlFor="new-fp-cost" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">FP illustrative weight</label>
               <Input id="new-fp-cost" type="number" min="0" step="1" value={falsePositive} onChange={(event) => setFalsePositive(event.target.value)} />
             </div>
             <div>
-              <label htmlFor="new-fn-cost" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">FN cost weight ($)</label>
+              <label htmlFor="new-fn-cost" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">FN illustrative weight</label>
               <Input id="new-fn-cost" type="number" min="0" step="1" value={falseNegative} onChange={(event) => setFalseNegative(event.target.value)} />
             </div>
           </div>

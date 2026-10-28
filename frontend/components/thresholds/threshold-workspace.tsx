@@ -18,8 +18,28 @@ import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { fetchThresholdSnapshot } from "@/services/threshold-service";
 import type { CostWeights, ThresholdMetrics as ThresholdMetricsData, ThresholdModelEvaluation, ThresholdOptimizationSnapshot, ThresholdRecommendation } from "@/types";
 
-function nearestMetrics(model: ThresholdModelEvaluation, threshold: number): ThresholdMetricsData {
-  return model.thresholdCurve.reduce((closest, point) => Math.abs(point.threshold - threshold) < Math.abs(closest.threshold - threshold) ? point : closest, model.thresholdCurve[0]);
+function getCheckpointMetrics(model: ThresholdModelEvaluation, targetThreshold: number): ThresholdMetricsData {
+  const points = model.thresholdCurve;
+  if (!points || points.length === 0) {
+    return {
+      threshold: targetThreshold,
+      precision: 0,
+      recall: 0,
+      f1Score: 0,
+      falsePositiveCount: 0,
+      falseNegativeCount: 0,
+      truePositiveCount: 0,
+      trueNegativeCount: 0,
+      predictedFailureCount: 0,
+      totalSamples: 0,
+      falsePositiveCost: 0,
+      falseNegativeCost: 0,
+      businessCost: 0,
+    };
+  }
+  const exact = points.find((pt) => Math.abs(pt.threshold - targetThreshold) < 0.001);
+  if (exact) return exact;
+  return points.reduce((closest, point) => Math.abs(point.threshold - targetThreshold) < Math.abs(closest.threshold - targetThreshold) ? point : closest, points[0]);
 }
 
 function ThresholdWorkspace() {
@@ -70,8 +90,8 @@ function ThresholdWorkspace() {
   }
 
   const costWeights: CostWeights = selectedModel.costWeights ?? snapshot.costWeights;
-  const currentMetrics = nearestMetrics(selectedModel, threshold);
-  const defaultMetrics = nearestMetrics(selectedModel, selectedModel.defaultThreshold);
+  const currentMetrics = getCheckpointMetrics(selectedModel, threshold);
+  const defaultMetrics = getCheckpointMetrics(selectedModel, selectedModel.defaultThreshold);
 
   function selectModel(modelId: string) {
     const model = snapshot!.models.find((candidate) => candidate.modelId === modelId);
@@ -133,7 +153,7 @@ function ThresholdWorkspace() {
 
         <ThresholdControl
           model={selectedModel}
-          threshold={threshold}
+          threshold={currentMetrics.threshold}
           recommendations={selectedModel.recommendations}
           onThresholdChange={setThreshold}
           onReset={() => setThreshold(selectedModel.defaultThreshold)}
@@ -143,8 +163,8 @@ function ThresholdWorkspace() {
         <ThresholdMetrics metrics={currentMetrics} />
         <ThresholdConfusionMatrix metrics={currentMetrics} modelName={selectedModel.modelName} />
         <BusinessCostBreakdown metrics={currentMetrics} defaultMetrics={defaultMetrics} costWeights={costWeights} onCostWeightsChange={() => undefined} readOnly />
-        <ThresholdPerformanceChart model={selectedModel} selectedThreshold={threshold} />
-        <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={threshold} onSelect={selectRecommendation} />
+        <ThresholdPerformanceChart model={selectedModel} selectedThreshold={currentMetrics.threshold} />
+        <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={currentMetrics.threshold} onSelect={selectRecommendation} />
         <ModelThresholdComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={selectModel} />
         <CalibrationChart model={selectedModel} />
         <OperationalRecommendation model={selectedModel} metrics={currentMetrics} />

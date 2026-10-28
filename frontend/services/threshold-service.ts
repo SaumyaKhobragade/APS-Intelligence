@@ -33,7 +33,13 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
   };
   const frozen: ThresholdCurvePoint = { ...metricToThresholdMetrics(validation, costs), source: "validation_checkpoint", scope: "validation" };
   const internalPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
-  const maxF1 = internalPoints.reduce((best, current) => current.f1Score > best.f1Score ? current : best, internalPoints[0] ?? frozen);
+  const pointsMap = new Map<number, ThresholdCurvePoint>();
+  for (const pt of internalPoints) {
+    pointsMap.set(Number(pt.threshold.toFixed(4)), pt);
+  }
+  pointsMap.set(Number(frozen.threshold.toFixed(4)), frozen);
+  const sortedCurve = Array.from(pointsMap.values()).sort((a, b) => a.threshold - b.threshold);
+  const maxF1 = sortedCurve.reduce((best, current) => current.f1Score > best.f1Score ? current : best, sortedCurve[0] ?? frozen);
   const minimumCost = recommendation("minimum_cost", "Frozen minimum-cost threshold / external validation", frozen, "The frozen threshold was selected by minimum illustrative cost on the internal OOF policy subset and assessed on external validation.");
   const maximumF1 = recommendation("maximum_f1", "Internal maximum-F1 comparison", maxF1, "Persisted internal threshold-selection evidence; not a replacement for the frozen policy.");
   const defaultRecommendation = recommendation("default", "Frozen candidate operating point", frozen, "The Phase 9 candidate is preserved at its frozen evaluation threshold (0.115).");
@@ -60,7 +66,7 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
     calibrationStatus: "completed",
     calibrationStatusLabel: `${threshold.calibration_method} / persisted historical evidence`,
     brierScore: calibration.metrics.brier_score ?? undefined,
-    thresholdCurve: [frozen, ...internalPoints],
+    thresholdCurve: sortedCurve,
     calibrationCurve,
     recommendations: { minimumCost, maximumF1, default: defaultRecommendation },
     costWeights: costs,
@@ -93,7 +99,7 @@ function metricToThresholdMetrics(metric: BackendHistoricalMetric, costs: CostWe
     totalSamples: (matrix?.false_positive ?? 0) + (matrix?.false_negative ?? 0) + (matrix?.true_positive ?? 0) + (matrix?.true_negative ?? 0),
     falsePositiveCost: (matrix?.false_positive ?? 0) * costs.falsePositive,
     falseNegativeCost: (matrix?.false_negative ?? 0) * costs.falseNegative,
-    businessCost: metric.estimated_business_cost ?? 0,
+    businessCost: metric.estimated_business_cost ?? ((matrix?.false_positive ?? 0) * costs.falsePositive + (matrix?.false_negative ?? 0) * costs.falseNegative),
   };
 }
 
@@ -115,7 +121,7 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
     totalSamples: falsePositive + falseNegative + truePositive + trueNegative,
     falsePositiveCost: falsePositive * costs.falsePositive,
     falseNegativeCost: falseNegative * costs.falseNegative,
-    businessCost: point.business_cost ?? 0,
+    businessCost: point.business_cost ?? (falsePositive * costs.falsePositive + falseNegative * costs.falseNegative),
     source: "internal_selection",
     scope: "internal_selection",
   };

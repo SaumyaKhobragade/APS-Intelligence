@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CircleDollarSign, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatNumber } from "@/lib/formatters";
+import { formatNumber } from "@/lib/formatters";
 import type { BusinessImpactSummary } from "@/types";
 
 interface BusinessImpactProps {
@@ -25,7 +25,7 @@ function BusinessImpact({ impact }: BusinessImpactProps) {
           <div className="mt-8 border-l-2 border-signal pl-4">
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Cost function</p>
             <p className="mt-2 font-mono text-lg tracking-[-0.03em] text-ink">{unitFp} × FP + {unitFn} × FN</p>
-            <p className="mt-2 text-xs leading-5 text-muted">Illustrative Phase 9 cost assumption / weights configured in threshold optimization.</p>
+            <p className="mt-2 text-xs leading-5 text-muted">Illustrative Phase 9 cost assumption: 1 × FP + 10 × FN. Not measured Scania fleet currency.</p>
           </div>
         </div>
 
@@ -33,7 +33,7 @@ function BusinessImpact({ impact }: BusinessImpactProps) {
           <div className="flex flex-col gap-5 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Estimated business cost</p>
-              <p className="mt-2 font-mono text-5xl tracking-[-0.07em] text-ink sm:text-6xl">{formatCurrency(impact.estimatedCost)}</p>
+              <p className="mt-2 font-mono text-5xl tracking-[-0.07em] text-ink sm:text-6xl">{formatNumber(impact.estimatedCost)}</p>
             </div>
             <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> Final validation candidate (threshold 0.115)</Badge>
           </div>
@@ -41,15 +41,15 @@ function BusinessImpact({ impact }: BusinessImpactProps) {
           <div className="mt-7 space-y-6">
             <div>
               <div className="flex items-end justify-between gap-4">
-                <div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center bg-canvas-deep"><AlertTriangle aria-hidden="true" className="size-4 text-muted" /></span><div><p className="text-sm font-medium text-ink">False positives</p><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{formatNumber(impact.falsePositiveCount)} × ${unitFp}</p></div></div>
-                <p className="font-mono text-lg text-ink">{formatCurrency(impact.falsePositiveCost)}</p>
+                <div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center bg-canvas-deep"><AlertTriangle aria-hidden="true" className="size-4 text-muted" /></span><div><p className="text-sm font-medium text-ink">False positives</p><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{formatNumber(impact.falsePositiveCount)} × {unitFp} weight</p></div></div>
+                <p className="font-mono text-lg text-ink">{formatNumber(impact.falsePositiveCost)}</p>
               </div>
               <div className="mt-3 h-2 bg-canvas-deep"><div className="h-full bg-charcoal" style={{ width: `${(impact.falsePositiveCost / maxCost) * 100}%` }} /></div>
             </div>
             <div>
               <div className="flex items-end justify-between gap-4">
-                <div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center bg-signal-wash"><ShieldAlert aria-hidden="true" className="size-4 text-signal" /></span><div><p className="text-sm font-medium text-ink">False negatives</p><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{formatNumber(impact.falseNegativeCount)} × ${unitFn}</p></div></div>
-                <p className="font-mono text-lg text-signal">{formatCurrency(impact.falseNegativeCost)}</p>
+                <div className="flex items-center gap-3"><span className="flex size-8 items-center justify-center bg-signal-wash"><ShieldAlert aria-hidden="true" className="size-4 text-signal" /></span><div><p className="text-sm font-medium text-ink">False negatives</p><p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{formatNumber(impact.falseNegativeCount)} × {unitFn} weight</p></div></div>
+                <p className="font-mono text-lg text-signal">{formatNumber(impact.falseNegativeCost)}</p>
               </div>
               <div className="mt-3 h-2 bg-canvas-deep"><div className="h-full bg-signal" style={{ width: `${(impact.falseNegativeCost / maxCost) * 100}%` }} /></div>
             </div>

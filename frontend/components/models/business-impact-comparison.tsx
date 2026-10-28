@@ -1,7 +1,7 @@
 import * as React from "react";
 import { AlertTriangle, CircleDollarSign, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatNumber } from "@/lib/formatters";
+import { formatNumber } from "@/lib/formatters";
 import type { ModelEvaluation } from "@/types";
 
 interface BusinessImpactComparisonProps {
@@ -30,17 +30,17 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
           <h2 id="business-impact-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">The cheapest threshold is its own question.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">PR-AUC ranks the precision-recall surface. Business cost depends on the selected operating point and the asymmetric penalty for missed failures.</p>
         </div>
-        <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> {unitFp} × FP + {unitFn} × FN</Badge>
+        <Badge variant="signal"><CircleDollarSign aria-hidden="true" className="size-3" /> {unitFp} × FP + {unitFn} × FN (illustrative)</Badge>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[0.75fr_1.25fr]">
         <div className="border-t border-charcoal bg-charcoal p-6 text-white sm:p-8">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver">Illustrative validation cost</p>
           <p className="mt-6 font-display text-5xl leading-[0.9] tracking-[-0.05em]">False negatives carry the larger weight.</p>
-          <p className="mt-6 text-sm leading-6 text-silver/75">The displayed costs come from the persisted validation metric configuration. Use this comparison as a decision aid, not as measured operational fleet cost.</p>
+          <p className="mt-6 text-sm leading-6 text-silver/75">The displayed costs come from the persisted validation metric configuration. Use this comparison as an illustrative decision aid, not as measured operational fleet cost.</p>
           <div className="mt-10 border-t border-white/15 pt-5 font-mono text-[10px] uppercase leading-6 tracking-[0.1em] text-silver/65">
-            Inspection / ${unitFp} per false positive<br />
-            Missed failure / ${unitFn} per false negative
+            Inspection / {unitFp} weight per false positive<br />
+            Missed failure / {unitFn} weight per false negative
           </div>
         </div>
 
@@ -81,9 +81,9 @@ function BusinessImpactComparisonComponent({ models, selectedModelId, onSelectMo
                         <ShieldAlert aria-hidden="true" className="size-3" />
                         {formatNumber(impact.falseNegativeCount)}
                       </span>
-                      <span className="font-mono text-xs text-ink">{formatCurrency(impact.falsePositiveCost)}</span>
-                      <span className="font-mono text-xs text-signal">{formatCurrency(impact.falseNegativeCost)}</span>
-                      <span className="font-mono text-xs font-semibold text-ink">{formatCurrency(impact.estimatedCost)}</span>
+                      <span className="font-mono text-xs text-ink">{formatNumber(impact.falsePositiveCost)}</span>
+                      <span className="font-mono text-xs text-signal">{formatNumber(impact.falseNegativeCost)}</span>
+                      <span className="font-mono text-xs font-semibold text-ink">{formatNumber(impact.estimatedCost)}</span>
                     </div>
                     <div className="mt-3 h-1 bg-canvas-deep">
                       <div

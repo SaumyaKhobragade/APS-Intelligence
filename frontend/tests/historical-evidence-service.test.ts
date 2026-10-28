@@ -113,4 +113,19 @@ describe("historical evidence adapters", () => {
     await expect(fetchOfficialTestEvidence()).resolves.toEqual(payload);
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/v1/historical-evidence/official-test", expect.anything());
   });
+
+  it("calculates business impact using illustrative weights FP=1 and FN=10 without weight reversal", () => {
+    const model = mapHistoricalSummaryToModel(summary());
+    expect(model).not.toBeNull();
+    const impact = model!.businessImpact;
+
+    // Validation metrics in summary: FP=192, FN=17
+    expect(impact.falsePositiveCount).toBe(192);
+    expect(impact.falseNegativeCount).toBe(17);
+    expect(impact.unitFalsePositiveCost).toBe(1);
+    expect(impact.unitFalseNegativeCost).toBe(10);
+    expect(impact.falsePositiveCost).toBe(192); // 192 * 1
+    expect(impact.falseNegativeCost).toBe(170); // 17 * 10
+    expect(impact.estimatedCost).toBe(362); // 192 + 170
+  });
 });

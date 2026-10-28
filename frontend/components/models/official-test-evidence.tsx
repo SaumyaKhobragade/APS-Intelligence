@@ -65,10 +65,10 @@ function OfficialTestEvidenceComponent({ evidence }: OfficialTestEvidenceProps) 
         <div>
           <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Primary Decision Policy Metrics (Frozen Threshold {evidence.frozen_threshold.toFixed(3)})</p>
           <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="PR-AUC" value={formatPercent(metric.pr_auc ?? 0)} detail="Official test / primary selection" />
+            <Metric label="PR-AUC" value={formatPercent(metric.pr_auc ?? 0)} detail="Official test / primary evaluation metric" />
             <Metric label="Recall" value={formatPercent(metric.recall ?? 0)} detail="Threshold 0.115 (340 / 375 caught)" accent />
             <Metric label="Precision" value={formatPercent(metric.precision ?? 0)} detail="Threshold 0.115 (340 / 554 alerts)" />
-            <Metric label="Illustrative cost" value={formatNumber(metric.estimated_business_cost ?? 0)} detail="Cost metric: FP ($10) + FN ($500) = 564" accent />
+            <Metric label="Illustrative cost" value={formatNumber(metric.estimated_business_cost ?? 0)} detail="Cost metric: 1×FP + 10×FN = 564 (illustrative)" accent />
           </div>
         </div>
 

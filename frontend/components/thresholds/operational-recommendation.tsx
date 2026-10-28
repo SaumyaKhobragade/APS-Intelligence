@@ -1,6 +1,6 @@
 import { ArrowUpRight, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
+import { formatNumber, formatPercent } from "@/lib/formatters";
 import type { ThresholdMetrics, ThresholdModelEvaluation } from "@/types";
 
 interface OperationalRecommendationProps {
@@ -24,10 +24,10 @@ function OperationalRecommendation({ model, metrics }: OperationalRecommendation
         </div>
         <div className="mt-10 grid gap-5 border-t border-white/15 pt-6 sm:grid-cols-2 lg:grid-cols-5">
           <DecisionMetric label="Model" value={model.modelName} />
-          <DecisionMetric label="Threshold" value={formatPercent(metrics.threshold)} />
+          <DecisionMetric label="Threshold" value={metrics.threshold.toFixed(3)} />
           <DecisionMetric label="Expected recall" value={formatPercent(metrics.recall)} />
           <DecisionMetric label="Expected precision" value={formatPercent(metrics.precision)} />
-          <DecisionMetric label="Assumed cost" value={formatCurrency(metrics.businessCost)} />
+          <DecisionMetric label="Assumed cost" value={formatNumber(metrics.businessCost)} />
         </div>
         <div className="mt-8 flex flex-col gap-4 border-t border-white/15 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-3xl text-sm leading-6 text-silver/75">

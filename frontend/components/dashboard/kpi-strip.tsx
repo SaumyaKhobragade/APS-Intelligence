@@ -1,6 +1,6 @@
 import { BrainCircuit, CircleDollarSign, Database, Gauge, TriangleAlert } from "lucide-react";
 import { MetricDisplay } from "@/components/shared/section-header";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
+import { formatNumber, formatPercent } from "@/lib/formatters";
 import type { DashboardSnapshot } from "@/types";
 
 interface KpiStripProps {
@@ -52,7 +52,7 @@ function KpiStrip({ snapshot }: KpiStripProps) {
           />
           <MetricDisplay
             label="Validation business cost"
-            value={snapshot.businessImpact ? formatCurrency(snapshot.businessImpact.estimatedCost) : "—"}
+            value={snapshot.businessImpact ? formatNumber(snapshot.businessImpact.estimatedCost) : "—"}
             detail="Illustrative cost (FP=1, FN=10)"
             className="border-l-0 px-0 sm:border-l sm:pl-5"
           />

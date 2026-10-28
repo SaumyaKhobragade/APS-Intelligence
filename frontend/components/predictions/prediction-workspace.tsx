@@ -303,23 +303,23 @@ function PredictionWorkspace() {
                   <h2 id="impact-spec-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Asymmetric Cost Function & Economics</h2>
                   <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">Cost matrix weights false alarms against catastrophic breakdowns to optimize fleet maintenance spend.</p>
                 </div>
-                <Badge variant="neutral"><DollarSign aria-hidden="true" className="size-3" /> Cost ratio 50:1</Badge>
+                <Badge variant="neutral"><DollarSign aria-hidden="true" className="size-3" /> Cost ratio 10:1</Badge>
               </div>
               <div className="mt-8 grid gap-6 sm:grid-cols-3">
                 <div className="border border-line bg-surface p-5">
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">False Positive (Type I)</p>
-                  <p className="mt-2 text-xl font-mono text-ink">$10 per inspection</p>
+                  <p className="mt-2 text-xl font-mono text-ink">1 unit weight per inspection</p>
                   <p className="mt-1 text-xs text-muted">Routine shop inspection check for unnecessary maintenance alert.</p>
                 </div>
                 <div className="border border-line bg-surface p-5">
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">False Negative (Type II)</p>
-                  <p className="mt-2 text-xl font-mono text-signal">$500 per breakdown</p>
+                  <p className="mt-2 text-xl font-mono text-signal">10 units weight per breakdown</p>
                   <p className="mt-1 text-xs text-muted">Unplanned roadside failure requiring towing, cargo disruption, and repair.</p>
                 </div>
                 <div className="border border-line bg-surface p-5">
                   <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Optimal Operating Point</p>
                   <p className="mt-2 text-xl font-mono text-ink">Threshold 0.115</p>
-                  <p className="mt-1 text-xs text-muted">Minimizes total fleet expenditure across 16,000-vehicle evaluation.</p>
+                  <p className="mt-1 text-xs text-muted">Minimizes illustrative cost across evaluation datasets (1×FP + 10×FN).</p>
                 </div>
               </div>
             </section>

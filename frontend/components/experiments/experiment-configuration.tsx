@@ -1,6 +1,5 @@
 import { Braces, Download, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/formatters";
 import type { ExperimentConfigurationSnapshot } from "@/types";
 
 interface ExperimentConfigurationProps {
@@ -50,7 +49,7 @@ function ExperimentConfiguration({ configuration, onExport, readOnly = false }: 
           <ConfigLine label="Evaluation split" value={configuration.evaluationSplit} />
           <ConfigLine label="Random seed" value={configuration.randomSeed} />
           <ConfigLine label="Classification threshold" value={configuration.classificationThreshold?.toFixed(2)} />
-          <ConfigLine label="Cost weights" value={configuration.costWeights ? `${formatCurrency(configuration.costWeights.falsePositive)} FP / ${formatCurrency(configuration.costWeights.falseNegative)} FN` : undefined} />
+          <ConfigLine label="Cost weights" value={configuration.costWeights ? `${configuration.costWeights.falsePositive} FP / ${configuration.costWeights.falseNegative} FN (illustrative)` : undefined} />
         </div>
         <div className="border-t border-charcoal bg-surface p-5 sm:p-7">
           <div className="flex items-center gap-3 border-b border-line pb-4">

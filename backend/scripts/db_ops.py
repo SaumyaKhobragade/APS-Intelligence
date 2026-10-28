@@ -473,10 +473,10 @@ def restore_database(
             "Original database remains untouched and active."
         ) from verify_err
 
-    # Ensure sidecars exist on disk before staging away
+    # Ensure sidecars exist on disk with authentic pre-restore bytes before staging away
     for suffix, data in sidecar_snapshots.items():
         sc_p = Path(f"{target_db.as_posix()}{suffix}")
-        if not sc_p.exists():
+        if not sc_p.exists() or sc_p.read_bytes() != data:
             try:
                 sc_p.write_bytes(data)
             except OSError:
@@ -489,8 +489,6 @@ def restore_database(
         for suffix in sidecar_snapshots.keys()
     ]
 
-    target_staged = False
-    sidecars_staged = False
     new_target_installed = False
     stage = "atomic staging preparation"
 
@@ -500,13 +498,11 @@ def restore_database(
         for orig_sc, staged_sc in staged_old_sidecars:
             if orig_sc.exists():
                 os.replace(orig_sc, staged_sc)
-        sidecars_staged = True
 
         # Step B: Stage active database away
         stage = "target database staging"
         if target_db.exists():
             os.replace(target_db, staged_old_main)
-            target_staged = True
 
         # Step C: Atomically place new database into active target path
         stage = "target database replacement"
@@ -534,23 +530,28 @@ def restore_database(
         try:
             # 1. Safely restore main database if it was staged away
             # Atomically replace target_db with staged_old_main without unlinking target_db first
-            if target_staged and staged_old_main.exists():
+            if staged_old_main.exists():
                 os.replace(staged_old_main, target_db)
-                target_staged = False
-            elif new_target_installed and not target_staged:
+            elif new_target_installed and target_db.exists():
                 # Target was never staged (didn't exist originally) but new target was placed
                 target_db.unlink(missing_ok=True)
 
-            # 2. Restore original sidecars from staged locations
-            if sidecars_staged:
-                for orig_sc, staged_sc in staged_old_sidecars:
-                    if staged_sc.exists():
+            # 2. Restore all successfully staged sidecars (aware of partial staging)
+            for orig_sc, staged_sc in staged_old_sidecars:
+                if staged_sc.exists():
+                    if not orig_sc.exists():
                         os.replace(staged_sc, orig_sc)
+                    else:
+                        # orig_sc already exists; if its content differs from staged_sc, restore staged_sc
+                        if orig_sc.stat().st_size == 0 or orig_sc.read_bytes() != staged_sc.read_bytes():
+                            os.replace(staged_sc, orig_sc)
+                        else:
+                            staged_sc.unlink(missing_ok=True)
 
             # 3. Ensure all original sidecar content is restored on disk
             for suffix, data in sidecar_snapshots.items():
                 sc_p = Path(f"{target_db.as_posix()}{suffix}")
-                if not sc_p.exists():
+                if not sc_p.exists() or sc_p.read_bytes() != data:
                     try:
                         sc_p.write_bytes(data)
                     except OSError:
@@ -572,6 +573,9 @@ def restore_database(
             preserved_loc = []
             if staged_old_main.exists():
                 preserved_loc.append(f"staged file '{staged_old_main}'")
+            for _, staged_sc in staged_old_sidecars:
+                if staged_sc.exists():
+                    preserved_loc.append(f"staged sidecar '{staged_sc}'")
             if target_db.exists() and not new_target_installed:
                 preserved_loc.append(f"active path '{target_db}'")
             if safety_snapshot_path and safety_snapshot_path.exists():

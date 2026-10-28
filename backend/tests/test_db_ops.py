@@ -920,3 +920,153 @@ def test_successful_restore_staged_artifacts_cleaned_after_commit(tmp_path: Path
     safety_snaps = list(target_db.parent.glob("backups/safety_pre_restore_*.db"))
     assert len(safety_snaps) == 1
     assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6
+
+
+def test_fault_injection_partial_sidecar_staging_failure_and_rollback(tmp_path: Path, monkeypatch) -> None:
+    target_db = tmp_path / "data" / "target.db"
+    target_db.parent.mkdir(parents=True)
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    shm_file = Path(f"{target_db.as_posix()}-shm")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+    shm_file.write_bytes(b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    original_replace = shutil.os.replace
+
+    def mock_replace(src, dst):
+        # First sidecar (-wal) staging succeeds; second sidecar (-shm) staging fails
+        if "-shm.staged_old" in str(dst):
+            raise OSError("Injected disk error staging SHM sidecar")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(shutil.os, "replace", mock_replace)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Restore failed during sidecar staging: .*Injected disk error staging SHM sidecar.*Rollback completed: original database and sidecar files were restored. Original database remains active.",
+    ):
+        restore_database(
+            backup_file=backup_file,
+            target_db=target_db,
+            confirmed_offline_maintenance=True,
+            service_status_checker=lambda s: (False, "inactive (dead)"),
+        )
+
+    # 1. Both sidecars are restored byte-for-byte
+    assert wal_file.exists()
+    assert wal_file.read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
+    assert shm_file.exists()
+    assert shm_file.read_bytes() == b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8
+
+    # 2. Original target database remains intact and active with original 6 rows
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 6
+    assert get_table_counts(target_db)["dataset_metadata"] != 2
+
+    # 3. No successfully staged sidecar is silently abandoned
+    assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
+    assert len(list(target_db.parent.glob("*.tmp_restore_*"))) == 0
+
+
+def test_fault_injection_partial_sidecar_staging_rollback_failure(tmp_path: Path, monkeypatch) -> None:
+    target_db = tmp_path / "data" / "target.db"
+    target_db.parent.mkdir(parents=True)
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    shm_file = Path(f"{target_db.as_posix()}-shm")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+    shm_file.write_bytes(b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    original_replace = shutil.os.replace
+
+    def mock_replace(src, dst):
+        # 1. Fail staging on second sidecar (-shm)
+        if "-shm.staged_old" in str(dst):
+            raise OSError("Injected disk error staging SHM sidecar")
+        # 2. Fail rollback restore of first sidecar (-wal) back to orig path
+        if "-wal" in str(src) and "staged_old" in str(src) and str(dst) == str(wal_file):
+            raise OSError("Injected catastrophic failure restoring staged WAL")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(shutil.os, "replace", mock_replace)
+
+    with pytest.raises(
+        RuntimeError,
+        match="CRITICAL: Restore failed during sidecar staging: .*Automatic rollback failed.*Original database is preserved at .*staged sidecar .*active path .*safety snapshot.*Manual recovery is required",
+    ):
+        restore_database(
+            backup_file=backup_file,
+            target_db=target_db,
+            confirmed_offline_maintenance=True,
+            service_status_checker=lambda s: (False, "inactive (dead)"),
+        )
+
+    # 1. SHM sidecar (which never moved) is intact with original bytes
+    assert shm_file.exists()
+    assert shm_file.read_bytes() == b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8
+
+    # 2. Target database is intact with original 6 rows
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 6
+
+    # 3. WAL sidecar staged copy is safely preserved on disk for manual recovery
+    staged_sidecars = list(target_db.parent.glob("*.staged_old_*"))
+    assert len(staged_sidecars) == 1
+    assert "-wal" in staged_sidecars[0].name
+    assert staged_sidecars[0].read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
+
+    # 4. Mandatory safety snapshot also exists in backups directory with original 6 rows
+    safety_snaps = list(target_db.parent.glob("backups/safety_pre_restore_*.db"))
+    assert len(safety_snaps) == 1
+    assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6
+
+
+def test_successful_restore_with_multiple_sidecars(tmp_path: Path) -> None:
+    target_db = tmp_path / "data" / "target.db"
+    target_db.parent.mkdir(parents=True)
+    create_valid_aps_db(target_db, sample_count=6)
+    wal_file = Path(f"{target_db.as_posix()}-wal")
+    shm_file = Path(f"{target_db.as_posix()}-shm")
+    wal_file.write_bytes(b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8)
+    shm_file.write_bytes(b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8)
+
+    backup_file = tmp_path / "backup.db"
+    create_valid_aps_db(backup_file, sample_count=2)
+
+    safety_dir = target_db.parent / "backups"
+
+    restore_database(
+        backup_file=backup_file,
+        target_db=target_db,
+        confirmed_offline_maintenance=True,
+        service_status_checker=lambda s: (False, "inactive (dead)"),
+    )
+
+    # 1. Target database exists and has new backup data (2 rows)
+    assert target_db.exists()
+    assert get_table_counts(target_db)["dataset_metadata"] == 2
+
+    # 2. Old sidecars cleanly removed from active database
+    assert not wal_file.exists()
+    assert not shm_file.exists()
+
+    # 3. Old staged artifacts cleaned up
+    assert len(list(target_db.parent.glob("*.staged_old_*"))) == 0
+    assert len(list(target_db.parent.glob("*.tmp_restore_*"))) == 0
+
+    # 4. Mandatory safety snapshot preserved with forensic copies of both sidecars
+    safety_snaps = list(safety_dir.glob("safety_pre_restore_*.db"))
+    assert len(safety_snaps) == 1
+    safety_wal = safety_dir / f"{safety_snaps[0].name}-wal"
+    safety_shm = safety_dir / f"{safety_snaps[0].name}-shm"
+    assert safety_wal.exists()
+    assert safety_wal.read_bytes() == b"ORIGINAL_TARGET_WAL_PAYLOAD" * 8
+    assert safety_shm.exists()
+    assert safety_shm.read_bytes() == b"ORIGINAL_TARGET_SHM_PAYLOAD" * 8
+    assert get_table_counts(safety_snaps[0])["dataset_metadata"] == 6

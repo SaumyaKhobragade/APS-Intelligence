@@ -494,7 +494,7 @@ export async function fetchPredictionModels(): Promise<PredictionModelOption[]> 
   if (!mapped.some((item) => item.modelId === candidateId)) {
     mapped.push({
       modelId: candidateId,
-      modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
+      modelName: "CatBoost / 1.0.0 (Validation Candidate)",
       availability: "not_loaded",
       approvalStatus: approvalCheckFailed ? "verification_failed" : "unapproved",
       availabilityNote: approvalCheckFailed

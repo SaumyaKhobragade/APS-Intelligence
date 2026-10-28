@@ -21,7 +21,7 @@ export function fetchExperiments(pageSize = 100): Promise<ExperimentRegistrySnap
       .sort((first, second) => (second.created_at ?? "").localeCompare(first.created_at ?? ""))
       .map(mapHistoricalSummaryToExperiment),
     lastUpdated: new Date().toISOString(),
-    sourceLabel: "Historical Phase 3/4/9 evidence",
+    sourceLabel: "Historical evidence",
   }));
 }
 

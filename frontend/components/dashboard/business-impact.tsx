@@ -25,7 +25,7 @@ function BusinessImpact({ impact }: BusinessImpactProps) {
           <div className="mt-8 border-l-2 border-signal pl-4">
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Cost function</p>
             <p className="mt-2 font-mono text-lg tracking-[-0.03em] text-ink">{unitFp} × FP + {unitFn} × FN</p>
-            <p className="mt-2 text-xs leading-5 text-muted">Illustrative Phase 9 cost assumption: 1 × FP + 10 × FN. Not measured Scania fleet currency.</p>
+            <p className="mt-2 text-xs leading-5 text-muted">Illustrative validation cost assumption: 1 × FP + 10 × FN. Not measured Scania fleet currency.</p>
           </div>
         </div>
 

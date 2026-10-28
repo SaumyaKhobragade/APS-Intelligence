@@ -38,7 +38,7 @@ function PredictionWorkspace() {
   const [models, setModels] = React.useState<PredictionModelOption[]>([
     {
       modelId: "experiment:phase9-final-validation-candidate",
-      modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
+      modelName: "CatBoost / 1.0.0 (Validation Candidate)",
       availability: "not_loaded",
       approvalStatus: "unapproved",
       availabilityNote:
@@ -280,7 +280,7 @@ function PredictionWorkspace() {
                     {isVerificationFailed
                       ? "Approval status could not be established. Check backend connectivity."
                       : (selectedModel?.availabilityNote ??
-                         "Candidate model is unapproved (promotions: 0). In accordance with Phase 9 validation controls, live inference is gated until production promotion.")}
+                         "Candidate model is unapproved (promotions: 0). In accordance with validation governance controls, live inference is gated until production promotion.")}
                   </p>
                   <p className="font-mono text-[11px] text-muted mt-1">
                     Sensor form entry and batch CSV validation are active for exploration. Live inference is blocked by backend registry safeguards.

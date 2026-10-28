@@ -66,7 +66,7 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
       ...(explorer ? [] : [{ name: "training_profile", status: "unavailable" as const, message: "No persisted training profile is available; raw data was not reprofiled." }]),
       ...candidateEvidence.availability,
     ],
-    sourceLabel: "Persisted Phase 3/4/9 evidence",
+    sourceLabel: "Persisted historical evidence",
     candidateStatus: overview.candidate_lifecycle_status ?? "unavailable",
     candidateLabel: overview.candidate_label ?? undefined,
     candidateThreshold: candidateValidation?.threshold,

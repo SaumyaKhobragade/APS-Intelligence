@@ -39,19 +39,36 @@ interface MetricDisplayProps {
   trend?: string;
   accent?: boolean;
   className?: string;
+  valueClassName?: string;
+  title?: string;
 }
 
-function MetricDisplay({ label, value, detail, trend, accent, className }: MetricDisplayProps) {
+function MetricDisplay({
+  label,
+  value,
+  detail,
+  trend,
+  accent,
+  className,
+  valueClassName,
+  title,
+}: MetricDisplayProps) {
   return (
-    <div className={cn("border-l border-line px-4 py-1 first:border-l-0 first:pl-0", className)}>
+    <div className={cn("min-w-0 border-l border-line px-4 py-1 first:border-l-0 first:pl-0", className)} title={title}>
       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">{label}</p>
-      <div className="mt-3 flex items-end gap-2">
-        <p className={cn("font-mono text-3xl font-medium tracking-[-0.06em]", accent ? "text-signal" : "text-ink")}>
+      <div className="mt-3 flex min-w-0 items-end gap-2">
+        <p
+          className={cn(
+            "font-mono text-3xl font-medium tracking-[-0.06em]",
+            accent ? "text-signal" : "text-ink",
+            valueClassName,
+          )}
+        >
           {value}
         </p>
-        {trend ? <span className="pb-1 font-mono text-[10px] text-success">{trend}</span> : null}
+        {trend ? <span className="pb-1 font-mono text-[10px] text-success shrink-0">{trend}</span> : null}
       </div>
-      {detail ? <p className="mt-1 text-xs text-muted">{detail}</p> : null}
+      {detail ? <p className="mt-1 truncate text-xs text-muted">{detail}</p> : null}
     </div>
   );
 }

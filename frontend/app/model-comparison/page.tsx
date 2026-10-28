@@ -15,9 +15,9 @@ import { DeferredSection } from "@/components/ui/deferred-section";
 import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/button";
 import { fetchModelComparison } from "@/services/model-service";
-import { fetchOfficialTestEvidence } from "@/services/historical-evidence-service";
+import { fetchHistoricalValidation, fetchOfficialTestEvidence, mapHistoricalValidationToModel } from "@/services/historical-evidence-service";
 import type { BackendOfficialTestEvidenceResponse } from "@/services/backend-contracts";
-import type { ModelComparisonSnapshot } from "@/types";
+import type { ModelComparisonSnapshot, ModelEvaluation } from "@/types";
 
 export default function ModelComparisonPage() {
   const [snapshot, setSnapshot] = React.useState<ModelComparisonSnapshot | null>(null);
@@ -28,6 +28,9 @@ export default function ModelComparisonPage() {
   const [officialTest, setOfficialTest] = React.useState<BackendOfficialTestEvidenceResponse | null>(null);
   const [officialTestError, setOfficialTestError] = React.useState<string | null>(null);
   const [officialTestLoading, setOfficialTestLoading] = React.useState(true);
+  const [enrichedDetails, setEnrichedDetails] = React.useState<
+    Record<string, { featureImportance?: ModelEvaluation["featureImportance"]; hyperparameters?: ModelEvaluation["hyperparameters"] }>
+  >({});
 
   const load = React.useCallback(async (refresh = false) => {
     if (refresh) setIsRefreshing(true);
@@ -64,13 +67,53 @@ export default function ModelComparisonPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  React.useEffect(() => {
+    if (!selectedModelId) return;
+    if (enrichedDetails[selectedModelId]) return;
+
+    let cancelled = false;
+    fetchHistoricalValidation(selectedModelId)
+      .then((raw) => {
+        if (cancelled) return;
+        const detail = mapHistoricalValidationToModel(raw);
+        if (!detail) return;
+        setEnrichedDetails((prev) => ({
+          ...prev,
+          [selectedModelId]: {
+            featureImportance: detail.featureImportance,
+            hyperparameters: detail.hyperparameters,
+          },
+        }));
+      })
+      .catch((err) => {
+        console.warn("Could not load validation detail for", selectedModelId, err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModelId, enrichedDetails]);
+
   const handleSelectModel = React.useCallback((id: string) => {
     setSelectedModelId(id);
   }, []);
 
+  const models = React.useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.models.map((model) => {
+      const extra = enrichedDetails[model.modelId];
+      if (!extra) return model;
+      return {
+        ...model,
+        ...(extra.featureImportance ? { featureImportance: extra.featureImportance } : {}),
+        ...(extra.hyperparameters && Object.keys(extra.hyperparameters).length > 0 ? { hyperparameters: extra.hyperparameters } : {}),
+      };
+    });
+  }, [snapshot, enrichedDetails]);
+
   const selectedModel = React.useMemo(() => {
-    return snapshot?.models.find((model) => model.modelId === selectedModelId) ?? snapshot?.models[0];
-  }, [snapshot?.models, selectedModelId]);
+    return models.find((model) => model.modelId === selectedModelId) ?? models[0];
+  }, [models, selectedModelId]);
 
   return (
     <AppShell
@@ -81,16 +124,18 @@ export default function ModelComparisonPage() {
       <div className="mx-auto max-w-[1600px]">
         <section className="border-b border-line px-5 py-5 sm:px-8 lg:px-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <nav aria-label="Model Comparison sections" className="flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <a className="hover:text-signal" href="#model-overview">01 / Overview</a>
-              <a className="hover:text-signal" href="#metrics-table">02 / Metrics</a>
-              <a className="hover:text-signal" href="#precision-recall">03 / Curves</a>
-              <a className="hover:text-signal" href="#confusion-matrix">04 / Errors</a>
-              <a className="hover:text-signal" href="#feature-importance">05 / Features</a>
-              <a className="hover:text-signal" href="#model-details">06 / Details</a>
-              <a className="hover:text-signal" href="#business-impact">07 / Cost</a>
-              <a className="hover:text-signal" href="#official-test">08 / Official test</a>
-            </nav>
+            <div className="min-w-0 max-w-full overflow-x-auto no-scrollbar py-1">
+              <nav aria-label="Model Comparison sections" className="flex items-center gap-x-5 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                <a className="hover:text-signal shrink-0" href="#model-overview">01 / Overview</a>
+                <a className="hover:text-signal shrink-0" href="#metrics-table">02 / Metrics</a>
+                <a className="hover:text-signal shrink-0" href="#precision-recall">03 / Curves</a>
+                <a className="hover:text-signal shrink-0" href="#confusion-matrix">04 / Errors</a>
+                <a className="hover:text-signal shrink-0" href="#feature-importance">05 / Features</a>
+                <a className="hover:text-signal shrink-0" href="#model-details">06 / Details</a>
+                <a className="hover:text-signal shrink-0" href="#business-impact">07 / Cost</a>
+                <a className="hover:text-signal shrink-0" href="#official-test">08 / Official test</a>
+              </nav>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={isRefreshing}>
               <RefreshCw aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} /> Refresh comparison
             </Button>
@@ -131,25 +176,25 @@ export default function ModelComparisonPage() {
 
             {/* Above the fold: Overview and Metrics Table render immediately */}
             <ModelOverview
-              models={snapshot.models}
+              models={models}
               selectedModelId={selectedModel.modelId}
               onSelectModel={handleSelectModel}
             />
 
             <ModelMetricsTable
-              models={snapshot.models}
+              models={models}
               selectedModelId={selectedModel.modelId}
               onSelectModel={handleSelectModel}
             />
 
             {/* Below the fold: Deferred mounting via IntersectionObserver / idle */}
             <DeferredSection id="precision-recall" placeholderTitle="precision-recall and ROC curves">
-              <PrecisionRecallChart models={snapshot.models} />
+              <PrecisionRecallChart models={models} />
             </DeferredSection>
 
             <DeferredSection id="confusion-matrix" placeholderTitle="confusion matrix">
               <ConfusionMatrixComparison
-                models={snapshot.models}
+                models={models}
                 selectedModelId={selectedModel.modelId}
                 onSelectModel={handleSelectModel}
               />
@@ -157,7 +202,7 @@ export default function ModelComparisonPage() {
 
             <DeferredSection id="feature-importance" placeholderTitle="feature importance">
               <FeatureImportanceChart
-                models={snapshot.models}
+                models={models}
                 selectedModelId={selectedModel.modelId}
                 onSelectModel={handleSelectModel}
               />
@@ -169,7 +214,7 @@ export default function ModelComparisonPage() {
 
             <DeferredSection id="business-impact" placeholderTitle="business impact">
               <BusinessImpactComparison
-                models={snapshot.models}
+                models={models}
                 selectedModelId={selectedModel.modelId}
                 onSelectModel={handleSelectModel}
               />

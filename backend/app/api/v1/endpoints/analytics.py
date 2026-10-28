@@ -21,6 +21,7 @@ from app.schemas.analytics import (
 )
 from app.schemas.registry import RegistryReferenceType
 from app.services.analytics import AnalyticsService
+from app.services.historical_evidence import HistoricalEvidenceService
 from app.services.registry import ModelRegistryService
 from app.services.reports import ReportService, safe_component
 
@@ -43,7 +44,11 @@ def get_report_service(
     settings: Settings = Depends(get_settings),
     session: Session = Depends(get_db),
 ) -> ReportService:
-    return ReportService(AnalyticsService(settings, session), ModelRegistryService(settings, session))
+    return ReportService(
+        AnalyticsService(settings, session),
+        ModelRegistryService(settings, session),
+        HistoricalEvidenceService(settings),
+    )
 
 
 @router.get("/analytics/dashboard", response_model=DashboardResponse, summary="Get consolidated dashboard analytics")

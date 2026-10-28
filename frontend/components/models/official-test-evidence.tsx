@@ -52,7 +52,7 @@ function OfficialTestEvidenceComponent({ evidence }: OfficialTestEvidenceProps) 
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">Historical official-test evaluation</p>
           <h2 id="official-test-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Official Test Evaluation</h2>
-          <p className="mt-4 max-w-3xl text-sm leading-6 text-muted">These are persisted results from the completed official test evaluation. They are not production monitoring metrics.</p>
+          <p className="mt-4 max-w-3xl text-sm leading-6 text-muted">These are persisted results from the completed official test evaluation on the untouched 16,000-record test set. They are not production monitoring metrics.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="signal">Official test scope</Badge>
@@ -61,16 +61,26 @@ function OfficialTestEvidenceComponent({ evidence }: OfficialTestEvidenceProps) 
         </div>
       </div>
 
-      <div className="mt-8 grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="PR-AUC" value={formatPercent(metric.pr_auc ?? 0)} detail="Official test / primary policy" />
-        <Metric label="ROC-AUC" value={formatPercent(metric.roc_auc ?? 0)} detail="Official test / primary policy" />
-        <Metric label="Precision" value={formatPercent(metric.precision ?? 0)} detail="Threshold 0.115" />
-        <Metric label="Recall" value={formatPercent(metric.recall ?? 0)} detail="Threshold 0.115" accent />
-        <Metric label="F1" value={formatPercent(metric.f1_score ?? 0)} detail="Threshold 0.115" />
-        <Metric label="Specificity" value={formatPercent(metric.specificity ?? 0)} detail="Official test" />
-        <Metric label="Balanced accuracy" value={formatPercent(metric.balanced_accuracy ?? 0)} detail="Official test" />
-        <Metric label="Accuracy" value={formatPercent(metric.accuracy ?? 0)} detail="Official test" />
-        <Metric label="Illustrative cost" value={formatNumber(metric.estimated_business_cost ?? 0)} detail="Persisted FP/FN weights" accent />
+      <div className="mt-8 space-y-6">
+        <div>
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Primary Decision Policy Metrics (Frozen Threshold {evidence.frozen_threshold.toFixed(3)})</p>
+          <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="PR-AUC" value={formatPercent(metric.pr_auc ?? 0)} detail="Official test / primary evaluation metric" />
+            <Metric label="Recall" value={formatPercent(metric.recall ?? 0)} detail="Threshold 0.115 (340 / 375 caught)" accent />
+            <Metric label="Precision" value={formatPercent(metric.precision ?? 0)} detail="Threshold 0.115 (340 / 554 alerts)" />
+            <Metric label="Illustrative cost" value={formatNumber(metric.estimated_business_cost ?? 0)} detail="Cost metric: 1×FP + 10×FN = 564 (illustrative)" accent />
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Supporting Discrimination & Calibration Metrics</p>
+          <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="ROC-AUC" value={formatPercent(metric.roc_auc ?? 0)} detail="Global ranking discrimination" />
+            <Metric label="F1 Score" value={formatPercent(metric.f1_score ?? 0)} detail="Harmonic balance at 0.115" />
+            <Metric label="Balanced accuracy" value={formatPercent(metric.balanced_accuracy ?? 0)} detail="Macro-averaged class accuracy" />
+            <Metric label="Specificity" value={formatPercent(metric.specificity ?? 0)} detail="Healthy fleet retention (15,411 / 15,625)" />
+          </div>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[0.8fr_1.2fr]">

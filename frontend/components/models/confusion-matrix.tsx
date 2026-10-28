@@ -62,8 +62,8 @@ function ConfusionMatrixComparisonComponent({ models, selectedModelId, onSelectM
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Reading the cells</p>
           <div className="mt-5 space-y-5">
             <Explanation label="True negative" text="Normal systems correctly left unflagged." />
-            <Explanation label="False positive" text="A normal system sent for inspection; costed at $1 in this validation context." />
-            <Explanation label="False negative" text="A failure missed by the model; costed at $10 and operationally critical." accent />
+            <Explanation label="False positive" text="A normal system sent for inspection; weighted at 1 unit (FP=1) in illustrative evaluation." />
+            <Explanation label="False negative" text="A failure missed by the model; weighted at 10 units (FN=10) and operationally critical." accent />
             <Explanation label="True positive" text="A failure correctly surfaced for intervention." />
           </div>
         </div>

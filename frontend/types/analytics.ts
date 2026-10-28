@@ -155,15 +155,26 @@ export interface PredictionResult {
   missingFeatureCount?: number;
   batchRowCount?: number;
   featureContributions?: FeatureContribution[];
+  riskClassification?: "high" | "low";
 }
 
 export type PredictionClass = "normal" | "failure";
 
-export type PredictionStatus = "queued" | "processing" | "completed" | "failed";
+export type PredictionStatus = "queued" | "processing" | "completed" | "failed" | "partial";
 
 export type PredictionSource = "single" | "batch";
 
 export type PredictionAvailability = "demo_only" | "not_loaded" | "available";
+
+export type ModelApprovalStatus = "approved" | "unapproved" | "verification_failed";
+
+export type FeatureSchemaSource = "backend_verified" | "canonical_fallback";
+
+export interface FeatureSchemaResult {
+  features: SensorFeatureDefinition[];
+  source: FeatureSchemaSource;
+  warning?: string;
+}
 
 export interface SensorFeatureDefinition {
   id: string;
@@ -182,6 +193,7 @@ export interface PredictionModelOption {
   referenceId?: string;
   featureCount?: number;
   policyId?: string;
+  approvalStatus?: ModelApprovalStatus;
 }
 
 export interface FeatureContribution {
@@ -213,9 +225,21 @@ export interface BatchPredictionResponse {
   rowCount: number;
   completedCount: number;
   failedCount: number;
+  positiveCount?: number;
+  negativeCount?: number;
+  totalInferenceDurationMs?: number;
+  averageInferenceDurationMs?: number;
   resultsFileName: string;
   completedAt?: string;
+  serverTimestamp?: string;
+  clientReceivedAt?: string;
+  warnings?: string[];
   firstPrediction?: PredictionResult;
+  items?: Array<{
+    index: number;
+    prediction?: PredictionResult | null;
+    error?: { code: string; message: string; details?: unknown[] } | null;
+  }>;
 }
 
 export interface ConfusionMatrix {
@@ -262,9 +286,13 @@ export interface ThresholdMetrics {
   businessCost: number;
 }
 
+export type ThresholdEvidenceScope = "validation" | "internal_selection";
+
 export interface ThresholdCurvePoint extends ThresholdMetrics {
   source: "validation_checkpoint" | "internal_selection";
-  scope?: "validation" | "internal_selection";
+  scope: ThresholdEvidenceScope;
+  scopeLabel?: string;
+  sourceReference?: string;
 }
 
 export type CalibrationStatus = "demonstration_calibrated" | "demonstration_overconfident" | "demonstration_underconfident" | "completed" | "insufficient_sample" | "failed" | "not_available";
@@ -281,6 +309,10 @@ export interface ThresholdRecommendation {
   label: string;
   explanation: string;
   metrics: ThresholdMetrics;
+  scope?: ThresholdEvidenceScope;
+  scopeLabel?: string;
+  isAvailable?: boolean;
+  unavailableReason?: string;
 }
 
 export interface ThresholdModelEvaluation {
@@ -328,6 +360,8 @@ export interface ExperimentRecord {
   confusionMatrix?: ConfusionMatrix;
   createdAt: string;
   completedAt?: string;
+  serverTimestamp?: string;
+  clientReceivedAt?: string;
 }
 
 export type ExperimentType = "model_evaluation" | "threshold_evaluation" | "calibration" | "prediction_evaluation";

@@ -20,8 +20,14 @@ function FeatureImportanceChartComponent({ models, selectedModelId, onSelectMode
   }, [models, selectedModelId]);
 
   const importance = React.useMemo(() => {
-    return selectedModel?.featureImportance ?? [];
+    return (selectedModel?.featureImportance ?? []).slice(0, 15);
   }, [selectedModel]);
+
+  const maxImportance = React.useMemo(() => {
+    return Math.max(...importance.map((f) => f.importance), 0);
+  }, [importance]);
+
+  const isNormalized = maxImportance <= 1.0;
 
   const chartData = React.useMemo(() => {
     return importance.map((feature) => ({
@@ -54,20 +60,38 @@ function FeatureImportanceChartComponent({ models, selectedModelId, onSelectMode
         <div className="min-w-0 border-t border-charcoal bg-surface p-5 sm:p-7">
           <div className="flex items-center justify-between border-b border-line pb-4">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Most influential features / sample</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Top 15 influential features</p>
               <p className="mt-2 text-sm text-ink">{selectedModel.modelName}</p>
             </div>
             <Badge variant="neutral"><BarChart3 aria-hidden="true" className="size-3" /> {importanceMethod(importance[0]?.methodology)}</Badge>
           </div>
           {importance.length ? (
-            <div className="mt-7 h-72 w-full" role="img" aria-label={`Feature importance chart for ${selectedModel.modelName}`}>
+            <div className="mt-7 h-[440px] w-full" role="img" aria-label={`Feature importance chart for ${selectedModel.modelName}`}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 20, bottom: 4, left: 2 }}>
+                <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, bottom: 8, left: 10 }}>
                   <CartesianGrid horizontal={false} stroke="#d9d6ce" strokeDasharray="1 4" />
-                  <XAxis type="number" domain={[0, 1]} tickLine={false} axisLine={false} tick={{ fill: "#787873", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }} tickFormatter={(value: number) => value.toFixed(1)} />
-                  <YAxis type="category" dataKey="feature" width={54} tickLine={false} axisLine={false} tick={{ fill: "#2A2A2A", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }} />
-                  <Tooltip cursor={{ fill: "#ebe8e0" }} contentStyle={{ border: "1px solid #b8b5ac", borderRadius: 0, background: "#fbfaf7", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 11 }} formatter={(value) => formatPercent(Number(value ?? 0))} />
-                  <Bar dataKey="importance" fill="#E10600" barSize={18} radius={0} />
+                  <XAxis
+                    type="number"
+                    domain={isNormalized ? [0, 1] : [0, "auto"]}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#787873", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }}
+                    tickFormatter={(value: number) => isNormalized ? `${(value * 100).toFixed(0)}%` : value.toFixed(1)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="feature"
+                    width={64}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#2A2A2A", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10 }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "#ebe8e0" }}
+                    contentStyle={{ border: "1px solid #b8b5ac", borderRadius: 0, background: "#fbfaf7", fontFamily: "var(--font-ibm-plex-mono)", fontSize: 11 }}
+                    formatter={(value) => isNormalized ? formatPercent(Number(value ?? 0)) : Number(value ?? 0).toFixed(3)}
+                  />
+                  <Bar dataKey="importance" fill="#E10600" barSize={16} radius={0} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

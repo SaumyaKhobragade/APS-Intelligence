@@ -31,22 +31,110 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
     falsePositive: validation.false_positive_cost ?? 1,
     falseNegative: validation.false_negative_cost ?? 10,
   };
-  const frozen: ThresholdCurvePoint = { ...metricToThresholdMetrics(validation, costs), source: "validation_checkpoint", scope: "validation" };
-  const internalPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
-  const maxF1 = internalPoints.reduce((best, current) => current.f1Score > best.f1Score ? current : best, internalPoints[0] ?? frozen);
-  const minimumCost = recommendation("minimum_cost", "Frozen minimum-cost threshold / external validation", frozen, "The frozen threshold was selected by minimum illustrative cost on the internal OOF policy subset and assessed on external validation.");
-  const maximumF1 = recommendation("maximum_f1", "Internal maximum-F1 comparison", maxF1, "Persisted internal threshold-selection evidence; not a replacement for the frozen policy.");
-  const defaultRecommendation = recommendation("default", "Frozen candidate operating point", frozen, "The Phase 9 candidate is displayed read-only at its persisted threshold.");
+  const frozen: ThresholdCurvePoint = {
+    ...metricToThresholdMetrics(validation, costs),
+    source: "validation_checkpoint",
+    scope: "validation",
+    scopeLabel: "External validation / frozen candidate",
+    sourceReference: validation.source_reference,
+  };
+  const rawPoints = threshold.threshold_points.map((point) => historicalPointToThreshold(point, costs));
+  const pointsMap = new Map<string, ThresholdCurvePoint>();
+  for (const pt of rawPoints) {
+    pointsMap.set(pt.threshold.toFixed(4), pt);
+  }
+  pointsMap.set(frozen.threshold.toFixed(4), frozen);
+  const sortedCurve = Array.from(pointsMap.values()).sort((a, b) => a.threshold - b.threshold);
+
+  // Use ONLY genuine internal-selection points from threshold.internal_points or explicitly tagged scope/reference
+  const isGenuineInternal = (pt: BackendHistoricalThresholdPoint) =>
+    pt.scope === "internal_selection" ||
+    pt.source_reference === "maximum_f1" ||
+    pt.source_reference === "internal_max_f1" ||
+    pt.source_reference === "internal_min_cost" ||
+    pt.source_reference === "internal_recall_constrained";
+
+  const genuineInternalCandidates = [
+    ...(threshold.internal_points ?? []),
+    ...threshold.threshold_points.filter(isGenuineInternal),
+  ];
+  const internalMap = new Map<string, BackendHistoricalThresholdPoint>();
+  for (const pt of genuineInternalCandidates) {
+    if (isGenuineInternal(pt) || threshold.internal_points?.includes(pt)) {
+      internalMap.set(pt.threshold.toFixed(4), pt);
+    }
+  }
+  const internalList = Array.from(internalMap.values());
+  const internalPoints = internalList.map((point) => historicalPointToThreshold(point, costs));
+
+  const minimumCost = recommendation(
+    "minimum_cost",
+    "Validation operating point at minimum illustrative cost",
+    frozen,
+    "Evaluated at threshold 0.115 on the 12,000-sample external validation partition, yielding the lowest illustrative business cost (362) under baseline weights.",
+    "validation",
+    "External validation",
+    true,
+  );
+
+  const maximumF1: ThresholdRecommendation = internalPoints.length > 0
+    ? recommendation(
+        "maximum_f1",
+        "Internal maximum-F1 comparison",
+        internalPoints.reduce((best, current) => (current.f1Score > best.f1Score ? current : best), internalPoints[0]),
+        "Persisted internal threshold-selection evidence (OOF policy tuning); not an external validation point or candidate replacement.",
+        "internal_selection",
+        "Internal policy selection",
+        true,
+      )
+    : {
+        kind: "maximum_f1",
+        label: "Internal maximum-F1 comparison",
+        explanation: "Internal policy-selection evidence (OOF tuning) is unavailable. Validation checkpoints cannot be substituted.",
+        scope: "internal_selection",
+        scopeLabel: "Internal policy selection",
+        isAvailable: false,
+        unavailableReason: "Persisted internal-selection evidence is missing from payload.",
+        metrics: {
+          threshold: 0,
+          precision: 0,
+          recall: 0,
+          f1Score: 0,
+          falsePositiveCount: 0,
+          falseNegativeCount: 0,
+          truePositiveCount: 0,
+          trueNegativeCount: 0,
+          predictedFailureCount: 0,
+          totalSamples: 0,
+          falsePositiveCost: 0,
+          falseNegativeCost: 0,
+          businessCost: 0,
+        },
+      };
+
+  const defaultRecommendation = recommendation(
+    "default",
+    "Frozen candidate operating point",
+    frozen,
+    "The Phase 9 candidate is preserved at its frozen evaluation threshold (0.115), which was chosen by internal OOF tuning and verified on external validation.",
+    "validation",
+    "External validation",
+    true,
+  );
   const calibrationCurve: CalibrationPoint[] = calibration.reliability_curve.flatMap((point) => {
     const predicted = point.predicted_probability;
     const observed = point.observed_failure_rate;
     const count = point.sample_count;
-    return typeof predicted === "number" && typeof observed === "number" && typeof count === "number" ? [{
-      binLabel: String(point.bin_label ?? "bin"),
-      predictedProbability: predicted,
-      observedFailureRate: observed,
-      sampleCount: count,
-    }] : [];
+    return typeof predicted === "number" && typeof observed === "number" && typeof count === "number"
+      ? [
+          {
+            binLabel: String(point.bin_label ?? "bin"),
+            predictedProbability: predicted,
+            observedFailureRate: observed,
+            sampleCount: count,
+          },
+        ]
+      : [];
   });
   const model: ThresholdModelEvaluation = {
     modelId: `experiment:${CANDIDATE_ID}`,
@@ -60,7 +148,7 @@ export async function fetchThresholdSnapshot(): Promise<ThresholdOptimizationSna
     calibrationStatus: "completed",
     calibrationStatusLabel: `${threshold.calibration_method} / persisted historical evidence`,
     brierScore: calibration.metrics.brier_score ?? undefined,
-    thresholdCurve: [frozen, ...internalPoints],
+    thresholdCurve: sortedCurve,
     calibrationCurve,
     recommendations: { minimumCost, maximumF1, default: defaultRecommendation },
     costWeights: costs,
@@ -90,10 +178,16 @@ function metricToThresholdMetrics(metric: BackendHistoricalMetric, costs: CostWe
     truePositiveCount: matrix?.true_positive ?? 0,
     trueNegativeCount: matrix?.true_negative ?? 0,
     predictedFailureCount: (matrix?.false_positive ?? 0) + (matrix?.true_positive ?? 0),
-    totalSamples: (matrix?.false_positive ?? 0) + (matrix?.false_negative ?? 0) + (matrix?.true_positive ?? 0) + (matrix?.true_negative ?? 0),
+    totalSamples:
+      (matrix?.false_positive ?? 0) +
+      (matrix?.false_negative ?? 0) +
+      (matrix?.true_positive ?? 0) +
+      (matrix?.true_negative ?? 0),
     falsePositiveCost: (matrix?.false_positive ?? 0) * costs.falsePositive,
     falseNegativeCost: (matrix?.false_negative ?? 0) * costs.falseNegative,
-    businessCost: metric.estimated_business_cost ?? 0,
+    businessCost:
+      metric.estimated_business_cost ??
+      (matrix?.false_positive ?? 0) * costs.falsePositive + (matrix?.false_negative ?? 0) * costs.falseNegative,
   };
 }
 
@@ -102,6 +196,8 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
   const falseNegative = point.false_negative ?? 0;
   const truePositive = point.true_positive ?? 0;
   const trueNegative = point.true_negative ?? 0;
+  const scope = point.scope ?? "internal_selection";
+  const isValidation = scope === "validation";
   return {
     threshold: point.threshold,
     precision: point.precision ?? 0,
@@ -115,12 +211,22 @@ function historicalPointToThreshold(point: BackendHistoricalThresholdPoint, cost
     totalSamples: falsePositive + falseNegative + truePositive + trueNegative,
     falsePositiveCost: falsePositive * costs.falsePositive,
     falseNegativeCost: falseNegative * costs.falseNegative,
-    businessCost: point.business_cost ?? 0,
-    source: "internal_selection",
-    scope: "internal_selection",
+    businessCost: point.business_cost ?? (falsePositive * costs.falsePositive + falseNegative * costs.falseNegative),
+    source: isValidation ? "validation_checkpoint" : "internal_selection",
+    scope,
+    scopeLabel: point.scope_label ?? (isValidation ? "External validation" : "Internal policy selection (OOF CV)"),
+    sourceReference: point.source_reference,
   };
 }
 
-function recommendation(kind: ThresholdRecommendation["kind"], label: string, metrics: ThresholdMetrics, explanation: string): ThresholdRecommendation {
-  return { kind, label, metrics, explanation };
+function recommendation(
+  kind: ThresholdRecommendation["kind"],
+  label: string,
+  metrics: ThresholdMetrics,
+  explanation: string,
+  scope?: "validation" | "internal_selection",
+  scopeLabel?: string,
+  isAvailable: boolean = true,
+): ThresholdRecommendation {
+  return { kind, label, metrics, explanation, scope, scopeLabel, isAvailable };
 }

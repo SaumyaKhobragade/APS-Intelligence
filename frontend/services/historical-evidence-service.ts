@@ -34,20 +34,27 @@ export function fetchHistoricalExperiment(referenceId: string): Promise<BackendH
   return apiFetch<BackendHistoricalRunDetail>(`/historical-evidence/experiments/${encodeURIComponent(referenceId)}`);
 }
 
+export function extractReferenceId(id: string): string {
+  return id.includes(":") ? id.split(":")[1] : id;
+}
+
 export function fetchHistoricalValidationComparison(pageSize = 100): Promise<BackendHistoricalValidationComparisonResponse> {
   return apiFetch<BackendHistoricalValidationComparisonResponse>(`/historical-evidence/validation/comparison?page=1&page_size=${pageSize}`);
 }
 
 export function fetchHistoricalValidation(referenceId: string): Promise<BackendHistoricalValidationResponse> {
-  return apiFetch<BackendHistoricalValidationResponse>(`/historical-evidence/validation/${encodeURIComponent(referenceId)}`);
+  const safeId = extractReferenceId(referenceId);
+  return apiFetch<BackendHistoricalValidationResponse>(`/historical-evidence/validation/${encodeURIComponent(safeId)}`);
 }
 
 export function fetchHistoricalThreshold(referenceId: string): Promise<BackendHistoricalThresholdResponse> {
-  return apiFetch<BackendHistoricalThresholdResponse>(`/historical-evidence/thresholds/${encodeURIComponent(referenceId)}`);
+  const safeId = extractReferenceId(referenceId);
+  return apiFetch<BackendHistoricalThresholdResponse>(`/historical-evidence/thresholds/${encodeURIComponent(safeId)}`);
 }
 
 export function fetchHistoricalCalibration(referenceId: string): Promise<BackendHistoricalCalibrationResponse> {
-  return apiFetch<BackendHistoricalCalibrationResponse>(`/historical-evidence/calibration/${encodeURIComponent(referenceId)}`);
+  const safeId = extractReferenceId(referenceId);
+  return apiFetch<BackendHistoricalCalibrationResponse>(`/historical-evidence/calibration/${encodeURIComponent(safeId)}`);
 }
 
 export function fetchOfficialTestEvidence(): Promise<BackendOfficialTestEvidenceResponse> {
@@ -173,7 +180,7 @@ export function mapHistoricalValidationToModel(response: BackendHistoricalValida
   if (!model) return null;
   return {
     ...model,
-    hyperparameters: {},
+    hyperparameters: (() => { const hp = (response.reference as unknown as { hyperparameters?: Record<string, unknown> })?.hyperparameters; return hp ? (scalarRecord(hp) ?? {}) : {}; })(),
     featureImportance: featureImportance(response.feature_importance),
   };
 }

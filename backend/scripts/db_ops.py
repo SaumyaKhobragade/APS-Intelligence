@@ -24,16 +24,32 @@ BACKEND_DIR = SCRIPT_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-try:
-    from app.core.config import get_settings
+def resolve_default_paths() -> tuple[Path, Path]:
+    """Resolve default DB and backup directory paths deterministically from application settings."""
+    try:
+        from app.core.config import get_settings
 
-    DEFAULT_DB_PATH = Path(get_settings().database_url.replace("sqlite:///", ""))
-    if not DEFAULT_DB_PATH.is_absolute():
-        DEFAULT_DB_PATH = (BACKEND_DIR / DEFAULT_DB_PATH).resolve()
-except Exception:
-    DEFAULT_DB_PATH = BACKEND_DIR / "data" / "aps_intelligence.db"
+        settings = get_settings()
+        db_url = settings.database_url
+        if db_url.startswith("sqlite:///"):
+            db_raw = db_url[len("sqlite:///"):]
+            if "?" in db_raw:
+                db_raw = db_raw.split("?", 1)[0]
+            db_path = Path(db_raw)
+            if not db_path.is_absolute():
+                db_path = (settings.app_base_dir / db_path).resolve()
+        else:
+            db_path = (settings.persistent_storage_dir / "aps_intelligence.db").resolve()
 
-DEFAULT_BACKUP_DIR = BACKEND_DIR / "data" / "backups"
+        backup_dir = (settings.persistent_storage_dir / "backups").resolve()
+        return db_path, backup_dir
+    except Exception:
+        db_path = (BACKEND_DIR / "data" / "aps_intelligence.db").resolve()
+        backup_dir = (BACKEND_DIR / "data" / "backups").resolve()
+        return db_path, backup_dir
+
+
+DEFAULT_DB_PATH, DEFAULT_BACKUP_DIR = resolve_default_paths()
 
 # Schema validation constants
 REQUIRED_TABLES = {

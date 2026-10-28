@@ -9,6 +9,7 @@ import { navigationGroups, pageMetadata } from "@/constants/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DashboardHeader } from "@/components/shared/dashboard-header";
+import { apiFetch } from "@/services/api-client";
 
 function Wordmark() {
   return (
@@ -24,12 +25,37 @@ function Wordmark() {
   );
 }
 
+type BackendHealthStatus = "connected" | "unavailable" | "unknown";
+
+function useBackendHealth(): BackendHealthStatus {
+  const [status, setStatus] = React.useState<BackendHealthStatus>("unknown");
+
+  React.useEffect(() => {
+    let active = true;
+    async function checkHealth() {
+      try {
+        await apiFetch<{ status?: string }>("/health", { timeoutMs: 3000 });
+        if (active) setStatus("connected");
+      } catch {
+        if (active) setStatus("unavailable");
+      }
+    }
+    void checkHealth();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return status;
+}
+
 interface SidebarProps {
   mobileOpen: boolean;
   onClose: () => void;
+  backendStatus: BackendHealthStatus;
 }
 
-function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+function Sidebar({ mobileOpen, onClose, backendStatus }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -79,8 +105,9 @@ function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
       <div className="mt-auto border-t border-line pt-5">
         <div className="flex items-center justify-between text-xs text-muted">
-           <span className="inline-flex items-center gap-2">
-             <span className="size-1.5 rounded-full bg-success" /> FastAPI service
+          <span className="inline-flex items-center gap-2">
+            <span className={`size-1.5 rounded-full ${backendStatus === "connected" ? "bg-success" : backendStatus === "unavailable" ? "bg-signal" : "bg-muted"}`} />
+            {backendStatus === "connected" ? "Backend connected" : backendStatus === "unavailable" ? "Backend unavailable" : "Backend status unknown"}
           </span>
           <span className="font-mono text-[10px]">v0.2</span>
         </div>
@@ -106,13 +133,14 @@ interface AppShellProps {
 
 function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Persisted backend data" }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const backendStatus = useBackendHealth();
   const pathname = usePathname();
   const metadata = pageMetadata[pathname] ?? pageMetadata["/"];
 
   return (
     <div className="min-h-screen bg-canvas">
-      <div className="flex min-h-screen">
-        <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
+        <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} backendStatus={backendStatus} />
         {mobileOpen ? (
           <button
             type="button"
@@ -132,9 +160,27 @@ function AppShell({ children, onRefresh, isRefreshing = false, lastUpdated = "Pe
               <span className="text-line-strong">/</span>
               <span className="font-mono text-[10px] uppercase tracking-[0.12em]">{metadata.eyebrow}</span>
             </div>
-            <div className="flex items-center gap-3">
-              <Badge variant="success"><span className="size-1.5 rounded-full bg-success" /> Local backend</Badge>
-              <Button size="icon" variant="ghost" className="lg:hidden" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
+            <div className="flex items-center gap-2 sm:gap-3">
+              {backendStatus === "connected" ? (
+                <Badge variant="neutral" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-success" />
+                  <span className="hidden sm:inline">Backend connected</span>
+                  <span className="sm:hidden">Connected</span>
+                </Badge>
+              ) : backendStatus === "unavailable" ? (
+                <Badge variant="signal" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-signal" />
+                  <span className="hidden sm:inline">Backend unavailable</span>
+                  <span className="sm:hidden">Offline</span>
+                </Badge>
+              ) : (
+                <Badge variant="neutral" className="px-2 py-0.5 text-[11px] sm:px-2.5 sm:text-xs">
+                  <span className="size-1.5 rounded-full bg-muted" />
+                  <span className="hidden sm:inline">Backend status unknown</span>
+                  <span className="sm:hidden">Unknown</span>
+                </Badge>
+              )}
+              <Button size="icon" variant="ghost" className="lg:hidden shrink-0" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
                 <Menu aria-hidden="true" className="size-4" />
               </Button>
             </div>

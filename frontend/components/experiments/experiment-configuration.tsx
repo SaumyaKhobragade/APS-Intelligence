@@ -1,25 +1,87 @@
 import { Braces, Download, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/formatters";
 import type { ExperimentConfigurationSnapshot } from "@/types";
 
 interface ExperimentConfigurationProps {
   configuration: ExperimentConfigurationSnapshot;
   onExport: () => void;
   readOnly?: boolean;
+  referenceType?: "training_run" | "experiment";
 }
 
 function ExperimentConfiguration({ configuration, onExport, readOnly = false }: ExperimentConfigurationProps) {
   const complete = configuration.unavailableFields.length === 0;
   return (
     <section id="experiment-configuration" aria-labelledby="experiment-configuration-heading" className="border-b border-line bg-canvas-deep/45 px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
-      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">07 / Reproducibility snapshot</p><h2 id="experiment-configuration-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Review what can be reproduced.</h2><p className="mt-4 max-w-2xl text-sm leading-6 text-muted">The snapshot keeps model, dataset, schema, preprocessing, threshold and cost assumptions together. Unavailable fields are not silently filled.</p></div>{readOnly ? <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence / read-only</span> : <Button variant="outline" onClick={onExport}><Download aria-hidden="true" className="size-3.5" /> Export configuration JSON</Button>}</div>
-      <div className={`mt-8 flex items-start gap-3 border-l-2 pl-4 ${complete ? "border-success" : "border-signal"}`}><ShieldCheck aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${complete ? "text-success" : "text-signal"}`} /><div><p className="text-sm font-medium text-ink">{complete ? "Configuration fields available" : "Partial reproducibility only"}</p><p className="mt-1 text-sm leading-6 text-muted">{complete ? "The demonstration snapshot contains the configured fields shown below." : `Unavailable: ${configuration.unavailableFields.join(", ")}. Essential artifacts may still be missing.`}</p></div></div>
-      <div className="mt-8 grid gap-8 xl:grid-cols-2"><div className="border-t border-charcoal bg-surface p-5 sm:p-7"><div className="flex items-center gap-3 border-b border-line pb-4"><Braces aria-hidden="true" className="size-4 text-signal" /><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Identifiers and evaluation</p></div><ConfigLine label="Model identifier" value={configuration.modelIdentifier} /><ConfigLine label="Model version" value={configuration.modelVersion} /><ConfigLine label="Dataset identifier" value={configuration.datasetIdentifier} /><ConfigLine label="Dataset version" value={configuration.datasetVersion} /><ConfigLine label="Dataset fingerprint" value={configuration.datasetFingerprint} /><ConfigLine label="Evaluation split" value={configuration.evaluationSplit} /><ConfigLine label="Random seed" value={configuration.randomSeed} /><ConfigLine label="Classification threshold" value={configuration.classificationThreshold?.toFixed(2)} /><ConfigLine label="Cost weights" value={configuration.costWeights ? `${formatCurrency(configuration.costWeights.falsePositive)} FP / ${formatCurrency(configuration.costWeights.falseNegative)} FN` : undefined} /></div><div className="border-t border-charcoal bg-surface p-5 sm:p-7"><div className="flex items-center gap-3 border-b border-line pb-4"><Braces aria-hidden="true" className="size-4 text-signal" /><p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Feature schema and preprocessing</p></div><ConfigLine label="Feature schema" value={`${configuration.featureSchema.length} identifiers / ${configuration.featureSchema.slice(0, 3).join(", ")} …`} /><ConfigLine label="Missing values" value={configuration.preprocessing.missingValueHandling} /><ConfigLine label="Feature selection" value={configuration.preprocessing.featureSelection} /><ConfigLine label="Scaling / transforms" value={configuration.preprocessing.scalingOrTransformations} /><ConfigLine label="Class strategy" value={configuration.classImbalanceStrategy} /><div className="mt-5 border-t border-line pt-4"><p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Hyperparameters</p><pre className="mt-3 overflow-x-auto bg-canvas-deep p-3 font-mono text-[10px] leading-5 text-ink">{JSON.stringify(configuration.hyperparameters, null, 2)}</pre></div></div></div>
+      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">06 / Configuration & evidence</p>
+          <h2 id="experiment-configuration-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Review what can be reproduced.</h2>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">The snapshot keeps model, dataset, schema, preprocessing, threshold and cost assumptions together. Unavailable fields are not silently filled.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {readOnly ? (
+            <span className="border border-line-strong px-3 py-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Historical evidence</span>
+          ) : null}
+          <Button variant="outline" onClick={onExport}><Download aria-hidden="true" className="size-3.5" /> Export configuration JSON</Button>
+        </div>
+      </div>
+      <div className={`mt-8 flex items-start gap-3 border-l-2 pl-4 ${complete ? "border-success" : "border-signal"}`}>
+        <ShieldCheck aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${complete ? "text-success" : "text-signal"}`} />
+        <div>
+          <p className="text-sm font-medium text-ink">{complete ? "Configuration fields available" : "Partial reproducibility only"}</p>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            {complete
+              ? "The configuration snapshot contains the recorded fields shown below."
+              : `Unavailable: ${configuration.unavailableFields.join(", ")}. Essential artifacts may still be missing.`}
+          </p>
+        </div>
+      </div>
+      <div className="mt-8 grid gap-8 xl:grid-cols-2">
+        <div className="border-t border-charcoal bg-surface p-5 sm:p-7">
+          <div className="flex items-center gap-3 border-b border-line pb-4">
+            <Braces aria-hidden="true" className="size-4 text-signal" />
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Identifiers and evaluation</p>
+          </div>
+          <ConfigLine label="Model identifier" value={configuration.modelIdentifier} />
+          <ConfigLine label="Model version" value={configuration.modelVersion} />
+          <ConfigLine label="Dataset identifier" value={configuration.datasetIdentifier} />
+          <ConfigLine label="Dataset version" value={configuration.datasetVersion} />
+          <ConfigLine label="Dataset fingerprint" value={configuration.datasetFingerprint} />
+          <ConfigLine label="Evaluation split" value={configuration.evaluationSplit} />
+          <ConfigLine label="Random seed" value={configuration.randomSeed} />
+          <ConfigLine label="Classification threshold" value={configuration.classificationThreshold?.toFixed(2)} />
+          <ConfigLine label="Cost weights" value={configuration.costWeights ? `${configuration.costWeights.falsePositive} FP / ${configuration.costWeights.falseNegative} FN (illustrative)` : undefined} />
+        </div>
+        <div className="border-t border-charcoal bg-surface p-5 sm:p-7">
+          <div className="flex items-center gap-3 border-b border-line pb-4">
+            <Braces aria-hidden="true" className="size-4 text-signal" />
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Feature schema and preprocessing</p>
+          </div>
+          <ConfigLine label="Feature schema" value={`${configuration.featureSchema.length} identifiers / ${configuration.featureSchema.slice(0, 3).join(", ")} …`} />
+          <ConfigLine label="Missing values" value={configuration.preprocessing.missingValueHandling} />
+          <ConfigLine label="Feature selection" value={configuration.preprocessing.featureSelection} />
+          <ConfigLine label="Scaling / transforms" value={configuration.preprocessing.scalingOrTransformations} />
+          <ConfigLine label="Class strategy" value={configuration.classImbalanceStrategy} />
+          <div className="mt-5 border-t border-line pt-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Hyperparameters</p>
+            <pre className="mt-3 overflow-x-auto bg-canvas-deep p-3 font-mono text-[10px] leading-5 text-ink">{JSON.stringify(configuration.hyperparameters, null, 2)}</pre>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
 
-function ConfigLine({ label, value }: { label: string; value?: string | number }) { return <div className="flex flex-col gap-1 border-b border-line py-3 sm:flex-row sm:justify-between sm:gap-5"><span className="text-xs text-muted">{label}</span><span className={`text-right text-xs ${value === undefined ? "italic text-muted" : "text-ink"}`}>{value === undefined ? "Unavailable" : String(value)}</span></div>; }
+function ConfigLine({ label, value }: { label: string; value?: string | number }) {
+  return (
+    <div className="flex flex-col gap-1 border-b border-line py-3 sm:flex-row sm:justify-between sm:gap-5">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-right text-xs ${value === undefined ? "italic text-muted" : "text-ink"}`}>
+        {value === undefined ? "Unavailable" : String(value)}
+      </span>
+    </div>
+  );
+}
 
 export { ExperimentConfiguration };

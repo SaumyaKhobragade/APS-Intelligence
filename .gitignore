@@ -30,6 +30,7 @@ pnpm-debug.log*
 # -----------------------------------------------------------------------------
 # Python backend and virtual environments
 # -----------------------------------------------------------------------------
+**/.venv*/
 **/.venv/
 **/venv/
 **/env/
@@ -59,6 +60,13 @@ pnpm-debug.log*
 **/*.sqlite
 **/*.sqlite3
 **/*.db-journal
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/*.sqlite3-wal
+**/*.sqlite3-shm
+**/*.bak
 **/*.log
 backend/data/
 

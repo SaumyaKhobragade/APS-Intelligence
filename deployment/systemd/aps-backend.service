@@ -1,0 +1,48 @@
+# =============================================================================
+# APS Intelligence - FastAPI Backend Systemd Service Unit
+# =============================================================================
+# Installation:
+#   1. Copy to /etc/systemd/system/aps-backend.service
+#   2. Reload daemon: sudo systemctl daemon-reload
+#   3. Enable & start: sudo systemctl enable --now aps-backend
+#   4. Check status:  sudo systemctl status aps-backend
+# =============================================================================
+
+[Unit]
+Description=APS Intelligence FastAPI Backend Service
+After=network.target remote-fs.target
+Documentation=https://github.com/SaumyaKhobragade/APS-Intelligence
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/aps-intelligence/backend
+
+# Environment configuration
+Environment=PYTHONPATH=/opt/aps-intelligence/backend
+Environment=ENVIRONMENT=production
+EnvironmentFile=/opt/aps-intelligence/backend/.env
+
+# Single worker architecture for consistent SQLite operations without concurrency contention
+ExecStart=/opt/aps-intelligence/backend/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info \
+    --no-access-log
+
+# Restart policies
+Restart=always
+RestartSec=5s
+KillMode=process
+TimeoutStopSec=30s
+
+# Resource and security limits
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aps-backend
+
+[Install]
+WantedBy=multi-user.target

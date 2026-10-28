@@ -13,8 +13,18 @@ from app.core.config import Settings, get_settings
 def create_database_engine(settings: Settings) -> Engine:
     """Build an engine from settings without embedding environment policy."""
 
-    connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-    return create_engine(settings.database_url, connect_args=connect_args, future=True)
+    connect_args = {"check_same_thread": False, "timeout": 30.0} if settings.database_url.startswith("sqlite") else {}
+    active_engine = create_engine(settings.database_url, connect_args=connect_args, future=True)
+    if settings.database_url.startswith("sqlite"):
+        from sqlalchemy import event
+
+        @event.listens_for(active_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):  # type: ignore[no-untyped-def]
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return active_engine
 
 
 engine = create_database_engine(get_settings())

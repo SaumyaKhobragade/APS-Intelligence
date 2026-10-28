@@ -22,6 +22,75 @@ def test_application_starts_and_health_endpoint_returns_contract(client: TestCli
     }
 
 
+def test_verbose_health_endpoint_returns_diagnostics(client: TestClient) -> None:
+    response = client.get("/api/v1/health?verbose=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["api_status"] == "operational"
+    assert data["database"] == "operational"
+    assert data["storage"] == "operational"
+    assert data["liveness"] == "alive"
+    assert data["readiness"] == "ready"
+
+
+def test_verbose_health_missing_storage_reports_degraded(test_settings: Settings) -> None:
+    from app.main import create_app
+    import shutil
+
+    missing_dir = test_settings.persistent_storage_dir / "sub_missing"
+    bad_settings = test_settings.model_copy(update={"persistent_storage_dir": missing_dir})
+    app = create_app(bad_settings)
+
+    with TestClient(app) as test_client:
+        # Delete directory after startup lifespan has created it
+        if missing_dir.exists():
+            shutil.rmtree(missing_dir)
+
+        response = test_client.get("/api/v1/health?verbose=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["storage"] == "missing"
+        assert data["liveness"] == "alive"
+        assert data["readiness"] == "not_ready"
+
+
+def test_verbose_health_database_failure_reports_degraded(test_settings: Settings) -> None:
+    from app.main import create_app
+    from unittest.mock import patch
+
+    app = create_app(test_settings)
+    with TestClient(app) as test_client:
+        with patch("app.api.v1.endpoints.health.verify_database_connection", side_effect=RuntimeError("DB down")):
+            response = test_client.get("/api/v1/health?verbose=true")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "degraded"
+            assert data["database"] == "unreachable"
+            assert data["storage"] == "operational"
+            assert data["liveness"] == "alive"
+            assert data["readiness"] == "not_ready"
+
+
+def test_verbose_health_missing_engine_reports_unavailable(test_settings: Settings) -> None:
+    from app.main import create_app
+
+    app = create_app(test_settings)
+    with TestClient(app) as test_client:
+        # Simulate uninitialized / missing engine
+        test_client.app.state.engine = None
+        response = test_client.get("/api/v1/health?verbose=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["database"] == "unavailable"
+        assert data["storage"] == "operational"
+        assert data["liveness"] == "alive"
+        assert data["readiness"] == "not_ready"
+
+
 def test_startup_creates_configured_storage_layout(client: TestClient, test_settings: Settings) -> None:
     assert test_settings.persistent_storage_dir.is_dir()
     assert test_settings.dataset_storage_dir.joinpath("raw").is_dir()

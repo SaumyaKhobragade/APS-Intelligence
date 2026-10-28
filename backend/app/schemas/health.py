@@ -13,3 +13,7 @@ class HealthResponse(BaseModel):
     application_version: str
     environment: str
     api_status: str
+    database: str | None = None
+    storage: str | None = None
+    liveness: str | None = None
+    readiness: str | None = None

@@ -8,15 +8,20 @@ import type { PredictionResult } from "@/types";
 
 interface PredictionResultPanelProps {
   result?: PredictionResult;
+  isBlocked?: boolean;
 }
 
-function PredictionResultPanel({ result }: PredictionResultPanelProps) {
+function PredictionResultPanel({ result, isBlocked = false }: PredictionResultPanelProps) {
   if (!result) {
     return (
-      <section id="prediction-result" aria-labelledby="prediction-result-heading" className="border-b border-line px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
+      <section id="prediction-result" aria-labelledby="prediction-result-heading" className="border-b border-line px-5 py-8 sm:px-8 lg:px-10">
         <EmptyState
-          title="Prediction result pending"
-          description="Submit a single sensor row or process a batch to see the model probability and threshold decision."
+          title={isBlocked ? "Prediction result pending (Inference Gated)" : "Prediction result pending"}
+          description={
+            isBlocked
+              ? "Candidate evaluation model is unapproved (promotions: 0). Live prediction is gated by backend registry safeguards. Sensor inputs and batch CSVs can be verified in Stage 2."
+              : "Submit a single sensor row or process a batch to see the model probability and threshold decision."
+          }
         />
       </section>
     );
@@ -36,7 +41,12 @@ function PredictionResultPanel({ result }: PredictionResultPanelProps) {
             The probability is an empirical model output. The predicted classification is determined by comparing the probability with the applied threshold.
           </p>
         </div>
-        <Badge variant={isFailure ? "signal" : "success"}>{result.status ?? "completed"}</Badge>
+        <div className="flex items-center gap-2">
+          {result.riskClassification ? (
+            <Badge variant="neutral">Risk: {result.riskClassification}</Badge>
+          ) : null}
+          <Badge variant={isFailure ? "signal" : "success"}>{result.status ?? "completed"}</Badge>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[0.8fr_1.2fr]">

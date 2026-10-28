@@ -16,11 +16,11 @@ import { PredictionHistory } from "@/components/predictions/prediction-history";
 import {
   CANONICAL_APS_FEATURES,
   downloadPredictionHistoryCsv,
+  executeBatchPredictionSubmission,
+  executePredictionSubmission,
   fetchFeatureSchema,
   fetchPredictionHistory,
   fetchPredictionModels,
-  predictBatch,
-  predictSingle,
   type PredictionReference,
 } from "@/services/prediction-service";
 import type {
@@ -129,23 +129,21 @@ function PredictionWorkspace() {
     setError(null);
 
     try {
-      if (selectedModel.approvalStatus === "verification_failed") {
-        setError(
-          "Inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity."
-        );
+      const outcome = await executePredictionSubmission({
+        model: selectedModel,
+        reference: selectedReference,
+        readings: nextReadings,
+      });
+
+      if (outcome.status !== "success") {
+        setError(outcome.error ?? "Prediction request blocked.");
         return;
       }
 
-      if (selectedModel.approvalStatus !== "approved" || selectedModel.availability !== "available") {
-        setError(
-          `Inference blocked: The model '${selectedModel.modelName}' is an unapproved validation candidate (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`
-        );
-        return;
+      if (outcome.result) {
+        setResult(outcome.result);
+        setHistory((current) => [outcome.result as PredictionResult, ...current]);
       }
-
-      const nextResult = await predictSingle({ modelId: selectedModel.modelId, readings: nextReadings }, selectedReference);
-      setResult(nextResult);
-      setHistory((current) => [nextResult, ...current]);
     } catch (predictionError) {
       setError(predictionError instanceof Error ? predictionError.message : "The prediction request failed.");
     } finally {
@@ -159,26 +157,26 @@ function PredictionWorkspace() {
     setError(null);
 
     try {
-      if (selectedModel.approvalStatus === "verification_failed") {
-        const unavailableMsg =
-          "Batch inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity.";
-        setError(unavailableMsg);
-        throw new Error(unavailableMsg);
+      const outcome = await executeBatchPredictionSubmission({
+        model: selectedModel,
+        reference: selectedReference,
+        records,
+      });
+
+      if (outcome.status !== "success") {
+        const errorMsg = outcome.error ?? "Batch inference request blocked.";
+        setError(errorMsg);
+        throw new Error(errorMsg);
       }
 
-      if (selectedModel.approvalStatus !== "approved" || selectedModel.availability !== "available") {
-        const blockedMsg = `Batch inference blocked: Candidate model '${selectedModel.modelName}' is unapproved (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`;
-        setError(blockedMsg);
-        throw new Error(blockedMsg);
+      if (outcome.result) {
+        setBatchResult(outcome.result);
+        if (outcome.result.firstPrediction) {
+          setResult(outcome.result.firstPrediction);
+          setHistory((current) => [outcome.result!.firstPrediction as PredictionResult, ...current]);
+        }
+        return outcome.result;
       }
-
-      const response = await predictBatch({ ...selectedReference, records });
-      setBatchResult(response);
-      if (response.firstPrediction) {
-        setResult(response.firstPrediction);
-        setHistory((current) => [response.firstPrediction as PredictionResult, ...current]);
-      }
-      return response;
     } catch (predictionError) {
       const msg = predictionError instanceof Error ? predictionError.message : "The batch prediction request failed.";
       setError(msg);
@@ -265,56 +263,62 @@ function PredictionWorkspace() {
           </div>
         ) : null}
 
-        {/* 01 / Model Selection */}
+        {/* 01 / Inference Configuration */}
         <ModelSelector models={models} selectedModelId={selectedModelId ?? ""} onSelectModel={setSelectedModelId} />
 
         {/* Lifecycle Safeguard Active Notice */}
         {!isLoading && !isModelApproved ? (
-          <div className="border-b border-line bg-surface px-5 py-6 sm:px-8 lg:px-10">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
-                  <ShieldAlert aria-hidden="true" className="size-3.5" />
-                  {isVerificationFailed ? "Registry Verification Unavailable" : "Lifecycle Safeguard Active"}
-                </p>
-                <h3 className="mt-1 font-display text-2xl text-ink">
-                  {isVerificationFailed ? "Approval Status Could Not Be Established" : "Inference Gated / Unpromoted Candidate"}
-                </h3>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                  {isVerificationFailed
-                    ? "The model registry or promotion service did not return authoritative approval status. Live inference is blocked until connectivity to registry safeguards is restored."
-                    : (selectedModel?.availabilityNote ??
-                       "The active model registry requires an approved model and promoted decision policy for live inference. In accordance with Phase 9 validation controls, candidate models are not automatically promoted to production.")}
-                </p>
+          <div className="border-b border-line bg-surface px-5 py-4 sm:px-8 lg:px-10">
+            <div className="border border-signal/40 bg-signal-wash/60 p-4 rounded-sm flex flex-col sm:flex-row items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert aria-hidden="true" className="size-5 text-signal shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-signal font-semibold">
+                    {isVerificationFailed ? "Registry Verification Unavailable" : "Lifecycle Safeguard Active"}
+                  </p>
+                  <p className="font-mono text-xs text-ink font-medium mt-1">
+                    {isVerificationFailed
+                      ? "Approval status could not be established. Check backend connectivity."
+                      : (selectedModel?.availabilityNote ??
+                         "Candidate model is unapproved (promotions: 0). In accordance with Phase 9 validation controls, live inference is gated until production promotion.")}
+                  </p>
+                  <p className="font-mono text-[11px] text-muted mt-1">
+                    Sensor form entry and batch CSV validation are active for exploration. Live inference is blocked by backend registry safeguards.
+                  </p>
+                </div>
               </div>
-              <Badge variant="neutral">
-                {isVerificationFailed ? "Service Unavailable" : "Production Promotion Required"}
+              <Badge variant="neutral" className="shrink-0 text-xs">
+                {isVerificationFailed ? "Service Unavailable" : "Promotion Required"}
               </Badge>
             </div>
           </div>
         ) : null}
 
         {/* Mode Selector Tab (Single truck vs Batch CSV) */}
-        <section className="border-b border-line px-5 py-8 sm:px-8 lg:px-10">
-          <div className="flex flex-wrap items-center gap-2 border-b border-line pb-4">
-            <Button
-              variant={mode === "single" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setMode("single")}
-              aria-pressed={mode === "single"}
-            >
-              Single truck
-            </Button>
-            <Button
-              variant={mode === "batch" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setMode("batch")}
-              aria-pressed={mode === "batch"}
-            >
-              Batch CSV
-            </Button>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              {selectedModel ? `${selectedModel.referenceType} / ${selectedModel.referenceId}` : "No model selected"}
+        <section className="border-b border-line bg-canvas-deep/30 px-5 py-4 sm:px-8 lg:px-10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex rounded border border-line bg-surface p-1">
+              <Button
+                variant={mode === "single" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMode("single")}
+                aria-pressed={mode === "single"}
+                className="font-mono text-xs h-8"
+              >
+                Single truck (170 sensors)
+              </Button>
+              <Button
+                variant={mode === "batch" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMode("batch")}
+                aria-pressed={mode === "batch"}
+                className="font-mono text-xs h-8"
+              >
+                Batch CSV inference (1,000 max)
+              </Button>
+            </div>
+            <span className="font-mono text-[11px] text-muted">
+              Active reference: {selectedModel ? `${selectedModel.referenceType}:${selectedModel.referenceId}` : "—"}
             </span>
           </div>
         </section>
@@ -339,8 +343,8 @@ function PredictionWorkspace() {
           />
         )}
 
-        {/* 04 / Prediction Result Panel */}
-        <PredictionResultPanel result={result} />
+        {/* 03 / Prediction Result Panel */}
+        <PredictionResultPanel result={result} isBlocked={!isModelApproved} />
 
         {/* 05 / Diagnostic Analysis (when result available) */}
         {result ? <DiagnosticAnalysis result={result} readings={readings} /> : null}

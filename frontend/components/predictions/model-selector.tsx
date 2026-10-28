@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Cpu, ShieldAlert } from "lucide-react";
+import * as React from "react";
+import { Check, Cpu, Layers } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/feedback";
 import type { PredictionModelOption } from "@/types";
@@ -11,92 +12,156 @@ interface ModelSelectorProps {
   onSelectModel: (modelId: string) => void;
 }
 
-function ModelSelector({ models, selectedModelId, onSelectModel }: ModelSelectorProps) {
+export function ModelSelector({
+  models,
+  selectedModelId,
+  onSelectModel,
+}: ModelSelectorProps) {
+  const selectedModel = models.find((m) => m.modelId === selectedModelId) ?? models[0];
+
+  if (!models.length) {
+    return (
+      <section
+        id="model-selection"
+        aria-labelledby="model-selection-heading"
+        className="border-b border-line px-5 py-6 sm:px-8 lg:px-10"
+      >
+        <EmptyState
+          title="No registered inference models"
+          description="The backend returned no completed model records. Inference remains unavailable until an approved model and active decision policy are registered."
+        />
+      </section>
+    );
+  }
+
+  const isApproved =
+    selectedModel?.approvalStatus === "approved" && selectedModel?.availability === "available";
+  const isVerificationFailed = selectedModel?.approvalStatus === "verification_failed";
+
   return (
-    <section id="model-selection" aria-labelledby="model-selection-heading" className="border-b border-line px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
-      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
+    <section
+      id="model-selection"
+      aria-labelledby="model-selection-heading"
+      className="border-b border-line px-5 py-6 sm:px-8 lg:px-10"
+    >
+      {/* Stage Header */}
+      <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Model selection</p>
-          <h2 id="model-selection-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">
-            Choose the inference artifact deliberately.
-          </h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-            Production inference requires an approved model and active decision policy. Candidate evaluation models remain gated by backend safeguards.
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">
+            01 / Inference Configuration
           </p>
+          <h2
+            id="model-selection-heading"
+            className="mt-1 font-display text-2xl leading-tight tracking-[-0.03em] text-ink sm:text-3xl"
+          >
+            Inference Artifact & Operating Point
+          </h2>
         </div>
-        <Badge variant="signal">
-          <Cpu aria-hidden="true" className="size-3" /> Model Registry
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={isApproved ? "success" : isVerificationFailed ? "signal" : "neutral"}>
+            <Cpu aria-hidden="true" className="size-3" />
+            {isApproved
+              ? "Production Approved"
+              : isVerificationFailed
+              ? "Registry Unavailable"
+              : "Unpromoted Candidate (Gated)"}
+          </Badge>
+        </div>
       </div>
 
-      {models.length ? (
-        <div className="mt-8 grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-3">
+      {/* Model Selection Tabs / Pill Selector (if multiple models) */}
+      {models.length > 1 ? (
+        <div className="mt-2 flex flex-wrap gap-2 pb-3 border-b border-line">
           {models.map((model) => {
-            const selected = model.modelId === selectedModelId;
-            const available = model.availability === "available";
-
+            const isSelected = model.modelId === selectedModelId;
             return (
               <button
                 key={model.modelId}
                 type="button"
-                className={`relative bg-surface p-5 text-left transition-colors hover:bg-canvas-deep ${
-                  selected ? "border-t-2 border-signal bg-signal-wash/40" : "border-t-2 border-transparent"
-                }`}
                 onClick={() => onSelectModel(model.modelId)}
-                aria-pressed={selected}
+                aria-pressed={isSelected}
+                className={`flex items-center gap-2 px-3 py-1.5 font-mono text-xs rounded border transition-colors ${
+                  isSelected
+                    ? "border-signal bg-signal-wash font-semibold text-ink"
+                    : "border-line bg-surface hover:bg-canvas-deep text-muted hover:text-ink"
+                }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted break-all">
-                    {model.modelId}
-                  </span>
-                  {selected ? <Check aria-hidden="true" className="size-4 shrink-0 text-signal" /> : null}
-                </div>
-                <p className="mt-5 font-display text-2xl leading-tight tracking-[-0.03em] text-ink">
-                  {model.modelName}
-                </p>
-                <div className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-4">
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Threshold</p>
-                    <p className="mt-1 font-mono text-base text-ink">
-                      {(model.defaultThreshold * 100).toFixed(1)}% ({model.defaultThreshold.toFixed(3)})
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Features</p>
-                    <p className="mt-1 font-mono text-base text-ink">
-                      {model.featureCount} sensor inputs
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-line/60 pt-3">
-                  <Badge variant={available ? "success" : "neutral"}>
-                    {available ? "Production Approved" : "Unpromoted Candidate"}
-                  </Badge>
-                  {!available ? (
-                    <span className="flex items-center gap-1 font-mono text-[10px] text-muted" title={model.availabilityNote}>
-                      <ShieldAlert aria-hidden="true" className="size-3 text-signal" /> Gated
-                    </span>
-                  ) : null}
-                </div>
-                {model.availabilityNote ? (
-                  <p className="mt-2 text-[11px] leading-4 text-muted line-clamp-2">
-                    {model.availabilityNote}
-                  </p>
-                ) : null}
+                {isSelected ? (
+                  <Check aria-hidden="true" className="size-3 text-signal" />
+                ) : (
+                  <Layers aria-hidden="true" className="size-3 text-muted" />
+                )}
+                <span>{model.modelName}</span>
               </button>
             );
           })}
         </div>
-      ) : (
-        <div className="mt-8">
-          <EmptyState
-            title="No registered inference models"
-            description="The backend returned no completed model records. Inference remains unavailable until an approved model and active decision policy are registered."
-          />
+      ) : null}
+
+      {/* Compact Model Metadata Grid */}
+      {selectedModel ? (
+        <div className="mt-4 border border-line bg-surface p-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-5">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                Model Artifact
+              </p>
+              <p className="mt-1 font-mono text-xs font-semibold text-ink truncate" title={selectedModel.modelName}>
+                {selectedModel.modelName}
+              </p>
+              <p className="mt-0.5 font-mono text-[10px] text-muted truncate" title={selectedModel.modelId}>
+                {selectedModel.modelId}
+              </p>
+            </div>
+
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                Frozen Threshold
+              </p>
+              <p className="mt-1 font-mono text-xs font-semibold text-ink">
+                {(selectedModel.defaultThreshold * 100).toFixed(1)}% ({selectedModel.defaultThreshold.toFixed(3)})
+              </p>
+              <p className="mt-0.5 font-mono text-[10px] text-muted">Cost-optimal</p>
+            </div>
+
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                Calibration
+              </p>
+              <p className="mt-1 font-mono text-xs font-semibold text-ink">Isotonic</p>
+              <p className="mt-0.5 font-mono text-[10px] text-muted">Probability mapped</p>
+            </div>
+
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                Feature Schema
+              </p>
+              <p className="mt-1 font-mono text-xs font-semibold text-ink">
+                {selectedModel.featureCount ?? 170} sensors
+              </p>
+              <p className="mt-0.5 font-mono text-[10px] text-muted">APS specification</p>
+            </div>
+
+            <div className="col-span-2 sm:col-span-4 lg:col-span-1 border-t lg:border-t-0 lg:border-l border-line pt-2 lg:pt-0 lg:pl-4">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
+                Lifecycle State
+              </p>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Badge variant={isApproved ? "success" : "neutral"} className="text-[10px]">
+                  {isApproved ? "Approved" : "Gated (0 promotions)"}
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          {/* Availability note / explanation */}
+          {selectedModel.availabilityNote ? (
+            <p className="mt-3 border-t border-line/60 pt-2 font-mono text-[11px] text-muted leading-4">
+              {selectedModel.availabilityNote}
+            </p>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
-
-export { ModelSelector };

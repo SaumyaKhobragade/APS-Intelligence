@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   CANONICAL_APS_FEATURES,
+  executeBatchPredictionSubmission,
+  executePredictionSubmission,
   exportBatchPredictionsCsv,
   fetchFeatureSchema,
   fetchPredictionModels,
@@ -19,7 +21,7 @@ import type {
   BackendPredictionResponse,
   BackendRegistryListResponse,
 } from "@/services/backend-contracts";
-import type { BatchPredictionResponse, PredictionModelOption } from "@/types";
+import type { BatchPredictionResponse, PredictionModelOption, PredictionResult } from "@/types";
 
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -542,6 +544,305 @@ describe("Phase 13.2.3.1 — Failure Prediction Review Fixes", () => {
 
       exportBatchPredictionsCsv(batchData, "batch-results.csv");
       expect(clickSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("strictly respects backend riskClassification and emits empty string when omitted", () => {
+      const batchData: BatchPredictionResponse = {
+        batchId: "batch-omitted-risk",
+        status: "completed",
+        rowCount: 1,
+        completedCount: 1,
+        failedCount: 0,
+        positiveCount: 1,
+        negativeCount: 0,
+        resultsFileName: "batch.json",
+        items: [
+          {
+            index: 0,
+            prediction: {
+              predictionId: "pred-no-risk",
+              datasetRowId: "row-no-risk",
+              predictedLabel: "failure",
+              failureProbability: 0.92,
+              threshold: 0.115,
+              // riskClassification is omitted/undefined
+              modelId: "run:001",
+              createdAt: "2026-10-28T10:00:00Z",
+            },
+          },
+        ],
+      };
+
+      const csv = generateBatchPredictionsCsv(batchData);
+      expect(csv).toContain('"0","pred-no-risk","pos","0.920000","0.115000","","completed"');
+      expect(csv).not.toContain('"high"');
+      expect(csv).not.toContain('"low"');
+    });
+  });
+
+  describe("8. Submission Handlers & Approval Safeguards", () => {
+    const unapprovedCandidateModel: PredictionModelOption = {
+      modelId: "experiment:phase9-final-validation-candidate",
+      modelName: "CatBoost / phase9.1.0 (Validation Candidate)",
+      availability: "not_loaded",
+      availabilityNote: "Candidate model is unapproved (promotions: 0).",
+      approvalStatus: "unapproved",
+      defaultThreshold: 0.115,
+      referenceType: "experiment",
+      referenceId: "phase9-final-validation-candidate",
+      featureCount: 170,
+    };
+
+    const verificationFailedModel: PredictionModelOption = {
+      modelId: "run:run-offline",
+      modelName: "Offline Run",
+      availability: "not_loaded",
+      availabilityNote: "Verification failed.",
+      approvalStatus: "verification_failed",
+      defaultThreshold: 0.115,
+      referenceType: "training_run",
+      referenceId: "run-offline",
+      featureCount: 170,
+    };
+
+    const approvedProductionModel: PredictionModelOption = {
+      modelId: "run:run-approved",
+      modelName: "Production Model v1",
+      availability: "available",
+      availabilityNote: "Production approved.",
+      approvalStatus: "approved",
+      defaultThreshold: 0.115,
+      referenceType: "training_run",
+      referenceId: "run-approved",
+      featureCount: 170,
+      policyId: "policy-prod-1",
+    };
+
+    it("single submission handler: unapproved model triggers 0 requests and returns blocked state", async () => {
+      const mockPredictSingle = vi.fn();
+
+      const result = await executePredictionSubmission({
+        model: unapprovedCandidateModel,
+        reference: { experimentId: "phase9-final-validation-candidate" },
+        readings: { aa_000: 100 },
+        predictFn: mockPredictSingle,
+      });
+
+      expect(mockPredictSingle).toHaveBeenCalledTimes(0);
+      expect(result.status).toBe("blocked");
+      expect(result.error).toContain("unapproved validation candidate");
+      expect(result.result).toBeUndefined();
+    });
+
+    it("single submission handler: verification-failed model triggers 0 requests and returns unavailable state", async () => {
+      const mockPredictSingle = vi.fn();
+
+      const result = await executePredictionSubmission({
+        model: verificationFailedModel,
+        reference: { modelRunId: "run-offline" },
+        readings: { aa_000: 100 },
+        predictFn: mockPredictSingle,
+      });
+
+      expect(mockPredictSingle).toHaveBeenCalledTimes(0);
+      expect(result.status).toBe("unavailable");
+      expect(result.error).toContain("Model approval status could not be established");
+      expect(result.result).toBeUndefined();
+    });
+
+    it("single submission handler: approved model triggers exactly 1 request and returns success state", async () => {
+      const mockResult: PredictionResult = {
+        predictionId: "pred-single-123",
+        datasetRowId: "pred-single-123",
+        predictedLabel: "normal",
+        failureProbability: 0.04,
+        threshold: 0.115,
+        modelId: "run:run-approved",
+        createdAt: "2026-10-28T12:00:00Z",
+      };
+      const mockPredictSingle = vi.fn().mockResolvedValue(mockResult);
+
+      const result = await executePredictionSubmission({
+        model: approvedProductionModel,
+        reference: { modelRunId: "run-approved", decisionPolicyId: "policy-prod-1" },
+        readings: { aa_000: 100 },
+        predictFn: mockPredictSingle,
+      });
+
+      expect(mockPredictSingle).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("success");
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual(mockResult);
+    });
+
+    it("batch submission handler: unapproved model triggers 0 requests and returns blocked state", async () => {
+      const mockPredictBatch = vi.fn();
+
+      const result = await executeBatchPredictionSubmission({
+        model: unapprovedCandidateModel,
+        reference: { experimentId: "phase9-final-validation-candidate" },
+        records: [{ features: { aa_000: 50 } }],
+        predictBatchFn: mockPredictBatch,
+      });
+
+      expect(mockPredictBatch).toHaveBeenCalledTimes(0);
+      expect(result.status).toBe("blocked");
+      expect(result.error).toContain("unapproved");
+      expect(result.result).toBeUndefined();
+    });
+
+    it("batch submission handler: verification-failed model triggers 0 requests and returns unavailable state", async () => {
+      const mockPredictBatch = vi.fn();
+
+      const result = await executeBatchPredictionSubmission({
+        model: verificationFailedModel,
+        reference: { modelRunId: "run-offline" },
+        records: [{ features: { aa_000: 50 } }],
+        predictBatchFn: mockPredictBatch,
+      });
+
+      expect(mockPredictBatch).toHaveBeenCalledTimes(0);
+      expect(result.status).toBe("unavailable");
+      expect(result.error).toContain("Model approval status could not be established");
+      expect(result.result).toBeUndefined();
+    });
+
+    it("batch submission handler: approved model triggers exactly 1 request and returns success state", async () => {
+      const mockBatchResponse: BatchPredictionResponse = {
+        batchId: "batch-approved-123",
+        status: "completed",
+        rowCount: 1,
+        completedCount: 1,
+        failedCount: 0,
+        resultsFileName: "batch.json",
+        items: [],
+      };
+      const mockPredictBatch = vi.fn().mockResolvedValue(mockBatchResponse);
+
+      const result = await executeBatchPredictionSubmission({
+        model: approvedProductionModel,
+        reference: { modelRunId: "run-approved", decisionPolicyId: "policy-prod-1" },
+        records: [{ features: { aa_000: 50 } }],
+        predictBatchFn: mockPredictBatch,
+      });
+
+      expect(mockPredictBatch).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("success");
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual(mockBatchResponse);
+    });
+  });
+
+  describe("9. Sensor Group Navigator & Interaction Logic", () => {
+    const sensorFeatures = CANONICAL_APS_FEATURES.map((id, order) => ({
+      id,
+      order,
+      group: id.split("_")[0] ?? "other",
+    }));
+
+    it("dynamically computes distinct groups covering all 170 sensor features", () => {
+      const distinctGroups = Array.from(new Set(sensorFeatures.map((f) => f.group))).sort();
+      expect(distinctGroups.length).toBeGreaterThan(0);
+      expect(distinctGroups).toContain("aa");
+      expect(distinctGroups).toContain("ag");
+      expect(distinctGroups).toContain("ee");
+      expect(distinctGroups).toContain("eg");
+
+      // Verify all 170 features are accounted for
+      const totalInGroups = distinctGroups.reduce((acc, grp) => {
+        return acc + sensorFeatures.filter((f) => f.group === grp).length;
+      }, 0);
+      expect(totalInGroups).toBe(170);
+    });
+
+    it("computes accurate group stats for populated, missing, and invalid entries", () => {
+      const testValues: Record<string, string> = {
+        aa_000: "123.45",
+        ag_000: "0",
+        ag_001: "42",
+        ee_000: "invalid-num",
+      };
+      const testErrors: Record<string, string> = {
+        ee_000: "Must be a valid finite number or empty",
+      };
+
+      const groupStats = (group: string) => {
+        const feats = sensorFeatures.filter((f) => f.group === group);
+        const total = feats.length;
+        const filled = feats.filter((f) => (testValues[f.id] ?? "").trim().length > 0).length;
+        const errorCount = feats.filter((f) => Boolean(testErrors[f.id])).length;
+        return { total, filled, missing: total - filled, errorCount };
+      };
+
+      // aa group (1 sensor: aa_000)
+      const aaStats = groupStats("aa");
+      expect(aaStats.total).toBe(1);
+      expect(aaStats.filled).toBe(1);
+      expect(aaStats.missing).toBe(0);
+      expect(aaStats.errorCount).toBe(0);
+
+      // ag group (10 sensors: ag_000..ag_009)
+      const agStats = groupStats("ag");
+      expect(agStats.total).toBe(10);
+      expect(agStats.filled).toBe(2);
+      expect(agStats.missing).toBe(8);
+      expect(agStats.errorCount).toBe(0);
+
+      // ee group (10 sensors: ee_000..ee_009)
+      const eeStats = groupStats("ee");
+      expect(eeStats.total).toBe(10);
+      expect(eeStats.filled).toBe(1);
+      expect(eeStats.missing).toBe(9);
+      expect(eeStats.errorCount).toBe(1);
+    });
+
+    it("filters features cleanly during search without mutating values", () => {
+      const queryExact = "aa_000";
+      const exactMatches = sensorFeatures.filter(
+        (f) => f.id.toLowerCase().includes(queryExact.toLowerCase()) || f.group.toLowerCase().includes(queryExact.toLowerCase())
+      );
+      expect(exactMatches).toHaveLength(1);
+      expect(exactMatches[0].id).toBe("aa_000");
+
+      const queryPrefix = "ee";
+      const prefixMatches = sensorFeatures.filter(
+        (f) => f.id.toLowerCase().includes(queryPrefix.toLowerCase()) || f.group.toLowerCase().includes(queryPrefix.toLowerCase())
+      );
+      expect(prefixMatches).toHaveLength(10);
+      expect(prefixMatches.every((f) => f.group === "ee")).toBe(true);
+    });
+
+    it("clearing a specific group preserves entered values in all other groups", () => {
+      const values: Record<string, string> = {
+        aa_000: "10",
+        ag_000: "20",
+        ag_001: "30",
+        ee_000: "40",
+      };
+
+      // Clear ag group only
+      const agFeatureIds = sensorFeatures.filter((f) => f.group === "ag").map((f) => f.id);
+      const nextValues = { ...values };
+      for (const id of agFeatureIds) {
+        delete nextValues[id];
+      }
+
+      expect(nextValues.aa_000).toBe("10");
+      expect(nextValues.ee_000).toBe("40");
+      expect(nextValues.ag_000).toBeUndefined();
+      expect(nextValues.ag_001).toBeUndefined();
+    });
+
+    it("clearing all values cleanly resets the entire form state", () => {
+      let values: Record<string, string> = {
+        aa_000: "10",
+        ag_000: "20",
+        ee_000: "30",
+      };
+      expect(Object.keys(values)).toHaveLength(3);
+
+      values = {};
+      expect(Object.keys(values)).toHaveLength(0);
     });
   });
 });

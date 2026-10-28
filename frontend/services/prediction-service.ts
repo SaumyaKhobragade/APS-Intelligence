@@ -635,7 +635,7 @@ export function generateBatchPredictionsCsv(batch: BatchPredictionResponse): str
     for (const item of batch.items) {
       if (item.prediction) {
         const pred = item.prediction;
-        const risk = pred.riskClassification ?? (pred.predictedLabel === "failure" ? "high" : "low");
+        const risk = pred.riskClassification ?? "";
         rows.push(
           [
             item.index,
@@ -773,4 +773,82 @@ function mapBatchPrediction(response: BackendBatchPredictionResponse): BatchPred
     firstPrediction: firstSuccess ? { ...firstSuccess, source: "batch", batchRowCount: response.total_records } : undefined,
     items: mappedItems,
   };
+}
+
+export interface PredictionSubmissionParams {
+  model: PredictionModelOption;
+  reference: PredictionReference;
+  readings: Record<string, number | null>;
+  predictFn?: (request: PredictionRequest, reference: PredictionReference) => Promise<PredictionResult>;
+}
+
+export interface PredictionSubmissionResult {
+  status: "success" | "blocked" | "unavailable";
+  error?: string;
+  result?: PredictionResult;
+}
+
+export async function executePredictionSubmission({
+  model,
+  reference,
+  readings,
+  predictFn = predictSingle,
+}: PredictionSubmissionParams): Promise<PredictionSubmissionResult> {
+  if (model.approvalStatus === "verification_failed") {
+    return {
+      status: "unavailable",
+      error:
+        "Inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity.",
+    };
+  }
+
+  if (model.approvalStatus !== "approved" || model.availability !== "available") {
+    return {
+      status: "blocked",
+      error: `Inference blocked: The model '${model.modelName}' is an unapproved validation candidate (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`,
+    };
+  }
+
+  const result = await predictFn({ modelId: model.modelId, readings }, reference);
+  return { status: "success", result };
+}
+
+export interface BatchSubmissionParams {
+  model: PredictionModelOption;
+  reference: PredictionReference;
+  records: Array<{ features: Record<string, number | null> }>;
+  predictBatchFn?: (request: BackendBatchRequest) => Promise<BatchPredictionResponse>;
+}
+
+export interface BatchSubmissionResult {
+  status: "success" | "blocked" | "unavailable";
+  error?: string;
+  result?: BatchPredictionResponse;
+}
+
+export async function executeBatchPredictionSubmission({
+  model,
+  reference,
+  records,
+  predictBatchFn = predictBatch,
+}: BatchSubmissionParams): Promise<BatchSubmissionResult> {
+  if (model.approvalStatus === "verification_failed") {
+    const errorMsg =
+      "Batch inference unavailable: Model approval status could not be established because registry or promotion checks failed. Check backend connectivity.";
+    return {
+      status: "unavailable",
+      error: errorMsg,
+    };
+  }
+
+  if (model.approvalStatus !== "approved" || model.availability !== "available") {
+    const errorMsg = `Batch inference blocked: Candidate model '${model.modelName}' is unapproved (promotions: 0). Backend safeguards require an approved model and promoted decision policy for live predictions.`;
+    return {
+      status: "blocked",
+      error: errorMsg,
+    };
+  }
+
+  const result = await predictBatchFn({ ...reference, records });
+  return { status: "success", result };
 }

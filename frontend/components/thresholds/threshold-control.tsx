@@ -72,9 +72,9 @@ function ThresholdControl({
           <h2 id="threshold-control-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Explore persisted checkpoints.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
             {isFrozenPolicy
-              ? "Displaying the frozen Phase 9 evaluation policy (threshold 0.115). All metrics correspond directly to this frozen external validation checkpoint."
+              ? "Displaying the frozen Phase 9 evaluation policy (threshold 0.115). Selected using internal out-of-fold (OOF) policy-selection evidence and measured on the 12,000-sample external validation partition."
               : activeCheckpoint
-                ? `Exploratory checkpoint active (threshold ${activeCheckpoint.threshold.toFixed(3)}). Metrics represent persisted ${activeCheckpoint.scope === "validation" ? "external validation" : "internal policy selection"} evidence for this operating point without modifying the frozen evaluation policy.`
+                ? `Exploratory checkpoint active (threshold ${activeCheckpoint.threshold.toFixed(3)}). Metrics represent measured ${activeCheckpoint.scope === "validation" ? "external validation" : "internal policy selection"} results for this operating point without modifying the frozen evaluation policy.`
                 : `Selected threshold (${threshold.toFixed(3)}) does not correspond to an exact persisted checkpoint. Nearest-point fallback is disabled.`}
           </p>
         </div>
@@ -209,8 +209,12 @@ function ThresholdControl({
               <p className="mt-2 font-mono text-lg">{recommendations.minimumCost.metrics.threshold.toFixed(3)}</p>
             </div>
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver/65">Max F1</p>
-              <p className="mt-2 font-mono text-lg">{recommendations.maximumF1.metrics.threshold.toFixed(3)}</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver/65">Max F1 (internal)</p>
+              <p className="mt-2 font-mono text-lg">
+                {recommendations.maximumF1 && recommendations.maximumF1.isAvailable !== false
+                  ? recommendations.maximumF1.metrics.threshold.toFixed(3)
+                  : "Unavailable"}
+              </p>
             </div>
           </div>
         </div>
@@ -245,17 +249,22 @@ function ThresholdControl({
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">Recommended operating checkpoints</p>
             <div className="mt-4 divide-y divide-line">
               {[recommendations.minimumCost, recommendations.maximumF1, recommendations.default].map((recommendation) => {
+                const isAvailable = recommendation.isAvailable !== false;
                 const isSelected = Boolean(
+                  isAvailable &&
                   activeCheckpoint &&
-                    activeCheckpoint.threshold.toFixed(4) === recommendation.metrics.threshold.toFixed(4) &&
-                    (!recommendation.scope || activeCheckpoint.scope === recommendation.scope),
+                  activeCheckpoint.threshold.toFixed(4) === recommendation.metrics.threshold.toFixed(4) &&
+                  (!recommendation.scope || activeCheckpoint.scope === recommendation.scope),
                 );
                 return (
                   <button
                     key={recommendation.kind}
                     type="button"
-                    className={`flex w-full items-center justify-between gap-4 py-3.5 text-left transition-colors hover:bg-canvas-deep/60 ${isSelected ? "text-signal font-medium" : "text-ink"}`}
-                    onClick={() => onSelectRecommendation(recommendation)}
+                    disabled={!isAvailable}
+                    className={`flex w-full items-center justify-between gap-4 py-3.5 text-left transition-colors ${!isAvailable ? "opacity-50 cursor-not-allowed" : "hover:bg-canvas-deep/60"} ${isSelected ? "text-signal font-medium" : "text-ink"}`}
+                    onClick={() => {
+                      if (isAvailable) onSelectRecommendation(recommendation);
+                    }}
                   >
                     <span>
                       <span className="flex items-center gap-2">
@@ -268,7 +277,9 @@ function ThresholdControl({
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-muted">{recommendation.explanation}</span>
                     </span>
-                    <span className="shrink-0 font-mono text-sm">{recommendation.metrics.threshold.toFixed(3)}</span>
+                    <span className="shrink-0 font-mono text-sm">
+                      {isAvailable ? recommendation.metrics.threshold.toFixed(3) : "Unavailable"}
+                    </span>
                   </button>
                 );
               })}
@@ -277,7 +288,7 @@ function ThresholdControl({
         </div>
       </div>
       <p className="mt-5 text-xs leading-5 text-muted">
-        Exploration is locked to genuine persisted checkpoints. Displayed metrics reflect their documented evaluation scope (external validation or internal policy selection) without modifying the frozen evaluation policy at 0.115. Candidate model is not production approved (promotions: 0).
+        Exploration is locked to 201 measured external validation checkpoints. Displayed metrics reflect validation results without modifying the frozen candidate policy at 0.115 (selected from internal OOF policy evidence). Candidate model is not production approved (promotions: 0).
       </p>
     </section>
   );

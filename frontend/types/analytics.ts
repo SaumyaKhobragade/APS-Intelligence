@@ -287,6 +287,8 @@ export interface ThresholdRecommendation {
   metrics: ThresholdMetrics;
   scope?: ThresholdEvidenceScope;
   scopeLabel?: string;
+  isAvailable?: boolean;
+  unavailableReason?: string;
 }
 
 export interface ThresholdModelEvaluation {

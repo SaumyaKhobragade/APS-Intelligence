@@ -39,9 +39,47 @@ function ThresholdRecommendations({
       <div className="mt-8 grid gap-5 xl:grid-cols-3">
         {items.map((recommendation) => {
           const Icon = icons[recommendation.kind];
+          const isAvailable = recommendation.isAvailable !== false;
           const selected =
+            isAvailable &&
             selectedThreshold.toFixed(4) === recommendation.metrics.threshold.toFixed(4) &&
             (!recommendation.scope || !selectedScope || selectedScope === recommendation.scope);
+
+          if (!isAvailable) {
+            return (
+              <div
+                key={recommendation.kind}
+                className="border-t-2 border-line bg-surface/50 p-5 sm:p-6 opacity-80"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <Icon
+                      aria-hidden="true"
+                      className="size-5 text-muted"
+                      strokeWidth={1.5}
+                    />
+                    <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">{recommendation.label}</p>
+                    {recommendation.scopeLabel ? (
+                      <span className="mt-1 inline-block font-mono text-[9px] uppercase tracking-wider text-muted">
+                        Scope / {recommendation.scopeLabel}
+                      </span>
+                    ) : null}
+                    <p className="mt-2 font-display text-4xl leading-none tracking-[-0.05em] text-muted">Unavailable</p>
+                  </div>
+                  <Badge variant="neutral">Evidence missing</Badge>
+                </div>
+                <p className="mt-5 text-sm leading-6 text-muted">{recommendation.explanation}</p>
+                <div className="mt-6 border-t border-line pt-5">
+                  <p className="font-mono text-xs leading-5 text-muted">
+                    Internal policy-selection evidence (OOF tuning) is absent from the backend payload. External validation checkpoints are never substituted or relabeled as internal evidence.
+                  </p>
+                </div>
+                <Button className="mt-7 w-full" variant="outline" disabled>
+                  Evidence unavailable
+                </Button>
+              </div>
+            );
+          }
 
           return (
             <div

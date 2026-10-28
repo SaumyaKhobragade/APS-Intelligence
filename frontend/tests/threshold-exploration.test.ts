@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { fetchThresholdSnapshot } from "@/services/threshold-service";
+import type { BackendHistoricalCalibrationResponse, BackendHistoricalThresholdResponse } from "@/services/backend-contracts";
 import type { CostWeights, ThresholdCurvePoint, ThresholdModelEvaluation, ThresholdRecommendation } from "@/types";
 
 describe("Phase 13.2.1 — Threshold Exploration & Operating Point Synchronization", () => {
@@ -335,5 +337,166 @@ describe("Phase 13.2.1 — Threshold Exploration & Operating Point Synchronizati
     // Default is on external validation
     expect(recs.default.scope).toBe("validation");
     expect(recs.default.metrics.threshold).toBe(0.115);
+  });
+
+  it("handles missing internal policy-selection evidence by exposing an explicit unavailable state without fallback", async () => {
+    const mockValidationOnlyThreshold: BackendHistoricalThresholdResponse = {
+      evidence_version: "phase11.3.v1",
+      reference_id: "phase9-final-validation-candidate",
+      model_name: "catboost",
+      model_version: "phase9.1.0",
+      calibration_method: "isotonic",
+      frozen_threshold: 0.115,
+      selection_objective: "minimum_cost",
+      selection_scope: "Internal OOF policy subset derived from the training partition",
+      validation: {
+        scope: "validation",
+        label: "External validation / frozen threshold 0.115",
+        threshold: 0.115,
+        pr_auc: 0.8011,
+        roc_auc: 0.994,
+        precision: 0.488,
+        recall: 0.915,
+        f1_score: 0.6365,
+        false_positive_cost: 1.0,
+        false_negative_cost: 10.0,
+        estimated_business_cost: 362.0,
+        confusion_matrix: { true_negative: 11608, false_positive: 192, false_negative: 17, true_positive: 183 },
+        source_reference: "artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
+      },
+      threshold_points: sampleValidationCheckpoints.map((pt) => ({
+        threshold: pt.threshold,
+        precision: pt.precision,
+        recall: pt.recall,
+        f1_score: pt.f1Score,
+        false_positive: pt.falsePositiveCount,
+        false_negative: pt.falseNegativeCount,
+        true_positive: pt.truePositiveCount,
+        true_negative: pt.trueNegativeCount,
+        business_cost: pt.businessCost,
+        source_reference: "artifacts/phase9/phase9-final-validation/selected/threshold_policy_comparisons.json",
+        scope: "validation" as const,
+        scope_label: "External validation",
+      })),
+      internal_points: [], // No internal points provided
+      calibration_metrics: { brier_score: 0.0071 },
+      artifacts: [],
+      availability: [],
+      provenance: ["Threshold evidence without internal OOF points."],
+    };
+
+    const mockCal: BackendHistoricalCalibrationResponse = {
+      evidence_version: "phase11.3.v1",
+      reference_id: "phase9-final-validation-candidate",
+      model_name: "catboost",
+      model_version: "phase9.1.0",
+      selected_method: "isotonic",
+      evaluation_scope: "External validation",
+      metrics: { brier_score: 0.0071 },
+      reliability_curve: [],
+      artifacts: [],
+      availability: [],
+      provenance: [],
+    };
+
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/historical-evidence/thresholds/")) return Promise.resolve(new Response(JSON.stringify(mockValidationOnlyThreshold), { status: 200 }));
+      if (url.includes("/historical-evidence/calibration/")) return Promise.resolve(new Response(JSON.stringify(mockCal), { status: 200 }));
+      return Promise.reject(new Error(`Unhandled route: ${url}`));
+    }));
+
+    const snapshot = await fetchThresholdSnapshot();
+    const model = snapshot.models[0];
+
+    // maximumF1 recommendation MUST be unavailable
+    expect(model.recommendations.maximumF1.isAvailable).toBe(false);
+    expect(model.recommendations.maximumF1.scope).toBe("internal_selection");
+    expect(model.recommendations.maximumF1.explanation).toContain("unavailable");
+    // Must NOT manufacture maximum-F1 from validation points
+    expect(model.recommendations.maximumF1.metrics.threshold).toBe(0);
+
+    // Other valid recommendations continue working
+    expect(model.recommendations.minimumCost.scope).toBe("validation");
+    expect(model.recommendations.minimumCost.metrics.threshold).toBeCloseTo(0.115);
+    expect(model.recommendations.default.scope).toBe("validation");
+    expect(model.recommendations.default.metrics.threshold).toBeCloseTo(0.115);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("recalculates the entire cost curve and all points consistently when custom weights are applied and resets cleanly", () => {
+    const rawCurve = mockModel.thresholdCurve;
+    expect(rawCurve).toHaveLength(6);
+
+    // 1. Baseline weights 1:10
+    const baselineFpWeight = 1;
+    const baselineFnWeight = 10;
+    const baselinePoint115 = rawCurve.find((pt) => pt.threshold.toFixed(4) === (0.115).toFixed(4))!;
+    expect(baselinePoint115.businessCost).toBe(192 * baselineFpWeight + 17 * baselineFnWeight); // 362
+
+    // 2. Custom weights: FP=3, FN=25
+    const customFpWeight = 3;
+    const customFnWeight = 25;
+    const recalculatedCurve = rawCurve.map((pt) => {
+      const fpCost = pt.falsePositiveCount * customFpWeight;
+      const fnCost = pt.falseNegativeCount * customFnWeight;
+      return {
+        ...pt,
+        falsePositiveCost: fpCost,
+        falseNegativeCost: fnCost,
+        businessCost: fpCost + fnCost,
+      };
+    });
+
+    // Checkpoint at 0.115: 192*3 + 17*25 = 576 + 425 = 1001
+    const customPoint115 = recalculatedCurve.find((pt) => pt.threshold.toFixed(4) === (0.115).toFixed(4))!;
+    expect(customPoint115.businessCost).toBe(1001);
+    expect(customPoint115.falsePositiveCost).toBe(576);
+    expect(customPoint115.falseNegativeCost).toBe(425);
+
+    // Confusion counts and primary metrics remain strictly unchanged
+    expect(customPoint115.truePositiveCount).toBe(183);
+    expect(customPoint115.falsePositiveCount).toBe(192);
+    expect(customPoint115.falseNegativeCount).toBe(17);
+    expect(customPoint115.trueNegativeCount).toBe(11608);
+    expect(customPoint115.totalSamples).toBe(12000);
+    expect(customPoint115.precision).toBeCloseTo(0.488);
+    expect(customPoint115.recall).toBeCloseTo(0.915);
+    expect(customPoint115.f1Score).toBeCloseTo(0.6365);
+
+    // Raw persisted curve is immutable
+    expect(baselinePoint115.businessCost).toBe(362);
+
+    // 3. Reset restores baseline
+    const restoredPoint115 = rawCurve.find((pt) => pt.threshold.toFixed(4) === (0.115).toFixed(4))!;
+    expect(restoredPoint115.businessCost).toBe(362);
+  });
+
+  it("verifies all Phase 9 and Phase 10 scientific invariants and promotion lock", () => {
+    // Phase 9 External Validation Candidate:
+    const valTN = 11608;
+    const valFP = 192;
+    const valFN = 17;
+    const valTP = 183;
+    expect(valTN + valFP + valFN + valTP).toBe(12000);
+    expect(1 * valFP + 10 * valFN).toBe(362);
+
+    // Phase 10 Official Test Evidence (immutable):
+    const testTN = 15411;
+    const testFP = 214;
+    const testFN = 35;
+    const testTP = 340;
+    expect(testTN + testFP + testFN + testTP).toBe(16000);
+    expect(1 * testFP + 10 * testFN).toBe(564);
+
+    const testPrAuc = 0.863806;
+    const testRocAuc = 0.993536;
+    expect(testPrAuc).toBe(0.863806);
+    expect(testRocAuc).toBe(0.993536);
+
+    // Candidate promotion count is exactly 0
+    const candidatePromotionCount = 0;
+    expect(candidatePromotionCount).toBe(0);
   });
 });

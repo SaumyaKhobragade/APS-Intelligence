@@ -62,34 +62,90 @@ function ThresholdWorkspace() {
     return customCostWeights ?? selectedModel?.costWeights ?? snapshot?.costWeights ?? { falsePositive: 1, falseNegative: 10 };
   }, [customCostWeights, selectedModel?.costWeights, snapshot?.costWeights]);
 
-  const rawCheckpoint = getExactCheckpoint(selectedModel, threshold);
-  const rawFrozen = selectedModel ? getExactCheckpoint(selectedModel, selectedModel.defaultThreshold) : null;
+  const activeModel = React.useMemo(() => {
+    if (!selectedModel) return null;
+    if (!customCostWeights) return selectedModel;
+
+    const fpWeight = costWeights.falsePositive;
+    const fnWeight = costWeights.falseNegative;
+
+    const updatedCurve = selectedModel.thresholdCurve.map((pt) => {
+      const fpCost = pt.falsePositiveCount * fpWeight;
+      const fnCost = pt.falseNegativeCount * fnWeight;
+      return {
+        ...pt,
+        falsePositiveCost: fpCost,
+        falseNegativeCost: fnCost,
+        businessCost: fpCost + fnCost,
+      };
+    });
+
+    const updateRec = (rec: ThresholdRecommendation): ThresholdRecommendation => {
+      if (rec.isAvailable === false) return rec;
+      const fpCost = rec.metrics.falsePositiveCount * fpWeight;
+      const fnCost = rec.metrics.falseNegativeCount * fnWeight;
+      return {
+        ...rec,
+        metrics: {
+          ...rec.metrics,
+          falsePositiveCost: fpCost,
+          falseNegativeCost: fnCost,
+          businessCost: fpCost + fnCost,
+        },
+      };
+    };
+
+    return {
+      ...selectedModel,
+      thresholdCurve: updatedCurve,
+      costWeights,
+      recommendations: {
+        minimumCost: updateRec(selectedModel.recommendations.minimumCost),
+        maximumF1: updateRec(selectedModel.recommendations.maximumF1),
+        default: updateRec(selectedModel.recommendations.default),
+      },
+    };
+  }, [selectedModel, customCostWeights, costWeights]);
 
   const currentCheckpoint = React.useMemo(() => {
-    if (!rawCheckpoint) return null;
-    if (!customCostWeights) return rawCheckpoint;
-    const fpCost = rawCheckpoint.falsePositiveCount * costWeights.falsePositive;
-    const fnCost = rawCheckpoint.falseNegativeCount * costWeights.falseNegative;
-    return {
-      ...rawCheckpoint,
-      falsePositiveCost: fpCost,
-      falseNegativeCost: fnCost,
-      businessCost: fpCost + fnCost,
-    };
-  }, [rawCheckpoint, customCostWeights, costWeights]);
+    return activeModel ? getExactCheckpoint(activeModel, threshold) : null;
+  }, [activeModel, threshold]);
 
   const frozenCheckpoint = React.useMemo(() => {
-    if (!rawFrozen) return null;
-    if (!customCostWeights) return rawFrozen;
-    const fpCost = rawFrozen.falsePositiveCount * costWeights.falsePositive;
-    const fnCost = rawFrozen.falseNegativeCount * costWeights.falseNegative;
-    return {
-      ...rawFrozen,
-      falsePositiveCost: fpCost,
-      falseNegativeCost: fnCost,
-      businessCost: fpCost + fnCost,
-    };
-  }, [rawFrozen, customCostWeights, costWeights]);
+    return activeModel ? getExactCheckpoint(activeModel, activeModel.defaultThreshold) : null;
+  }, [activeModel]);
+
+  const activeSnapshotModels = React.useMemo(() => {
+    if (!snapshot) return [];
+    if (!customCostWeights) return snapshot.models;
+    const fpWeight = costWeights.falsePositive;
+    const fnWeight = costWeights.falseNegative;
+    return snapshot.models.map((m) => {
+      const updateRec = (rec: ThresholdRecommendation): ThresholdRecommendation => {
+        if (rec.isAvailable === false) return rec;
+        const fpCost = rec.metrics.falsePositiveCount * fpWeight;
+        const fnCost = rec.metrics.falseNegativeCount * fnWeight;
+        return {
+          ...rec,
+          metrics: {
+            ...rec.metrics,
+            falsePositiveCost: fpCost,
+            falseNegativeCost: fnCost,
+            businessCost: fpCost + fnCost,
+          },
+        };
+      };
+      return {
+        ...m,
+        costWeights,
+        recommendations: {
+          minimumCost: updateRec(m.recommendations.minimumCost),
+          maximumF1: updateRec(m.recommendations.maximumF1),
+          default: updateRec(m.recommendations.default),
+        },
+      };
+    });
+  }, [snapshot, customCostWeights, costWeights]);
 
   if (!isLoading && (error || !selectedModel || !snapshot)) {
     return (
@@ -158,7 +214,7 @@ function ThresholdWorkspace() {
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Model selection</p>
               <h2 id="model-selection-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Inspect persisted policy analytics.</h2>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-                Thresholds and calibration below reflect offline validation evidence. Candidate evaluation policy is frozen at threshold 0.115. Candidate is not production approved.
+                Thresholds and calibration below reflect offline validation evidence. Candidate evaluation policy is frozen at threshold 0.115 (selected via internal OOF evidence, evaluated on external validation). Candidate is not production approved.
               </p>
             </div>
             <Badge variant="signal">{snapshot.models.length} persisted reference{snapshot.models.length === 1 ? "" : "s"}</Badge>
@@ -180,9 +236,9 @@ function ThresholdWorkspace() {
         </section>
 
         <ThresholdControl
-          model={selectedModel}
+          model={activeModel ?? selectedModel}
           threshold={threshold}
-          recommendations={selectedModel.recommendations}
+          recommendations={(activeModel ?? selectedModel).recommendations}
           onThresholdChange={setThreshold}
           onReset={handleReset}
           onSelectRecommendation={selectRecommendation}
@@ -225,11 +281,22 @@ function ThresholdWorkspace() {
                 readOnly={false}
               />
             ) : null}
-            <ThresholdPerformanceChart model={selectedModel} selectedThreshold={currentCheckpoint.threshold} />
-            <ThresholdRecommendations model={selectedModel} recommendations={selectedModel.recommendations} selectedThreshold={currentCheckpoint.threshold} selectedScope={currentCheckpoint.scope} onSelect={selectRecommendation} />
-            <ModelThresholdComparison models={snapshot.models} selectedModelId={selectedModel.modelId} onSelectModel={selectModel} />
-            <CalibrationChart model={selectedModel} />
-            <OperationalRecommendation model={selectedModel} metrics={currentCheckpoint} scope={currentCheckpoint.scope} />
+            <ThresholdPerformanceChart
+              model={activeModel ?? selectedModel}
+              selectedThreshold={currentCheckpoint.threshold}
+              costWeights={costWeights}
+              isCustomWeights={Boolean(customCostWeights)}
+            />
+            <ThresholdRecommendations
+              model={activeModel ?? selectedModel}
+              recommendations={(activeModel ?? selectedModel).recommendations}
+              selectedThreshold={currentCheckpoint.threshold}
+              selectedScope={currentCheckpoint.scope}
+              onSelect={selectRecommendation}
+            />
+            <ModelThresholdComparison models={activeSnapshotModels} selectedModelId={selectedModel.modelId} onSelectModel={selectModel} />
+            <CalibrationChart model={activeModel ?? selectedModel} />
+            <OperationalRecommendation model={activeModel ?? selectedModel} metrics={currentCheckpoint} scope={currentCheckpoint.scope} />
           </>
         )}
 

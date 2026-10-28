@@ -98,7 +98,11 @@ function ModelThresholdComparison({ models, selectedModelId, onSelectModel }: Mo
                   <TableCell className="font-mono text-xs">{formatPercent(model.defaultThreshold)}</TableCell>
                   <TableCell className="font-mono text-xs text-signal">{formatPercent(minimum.threshold)}</TableCell>
                   <TableCell className="font-mono text-xs font-semibold">{formatNumber(minimum.businessCost)}</TableCell>
-                  <TableCell className="font-mono text-xs">{formatPercent(recommendations.maximumF1.metrics.threshold)}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {recommendations.maximumF1 && recommendations.maximumF1.isAvailable !== false
+                      ? formatPercent(recommendations.maximumF1.metrics.threshold)
+                      : "Unavailable"}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{formatPercent(minimum.recall)}</TableCell>
                   <TableCell className="font-mono text-xs">{formatPercent(minimum.precision)}</TableCell>
                 </TableRow>

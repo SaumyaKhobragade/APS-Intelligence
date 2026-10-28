@@ -4,21 +4,29 @@ import { LineChart as LineChartIcon } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatPercent } from "@/lib/formatters";
-import type { ThresholdModelEvaluation } from "@/types";
+import type { CostWeights, ThresholdModelEvaluation } from "@/types";
 
 interface ThresholdPerformanceChartProps {
   model: ThresholdModelEvaluation;
   selectedThreshold: number;
+  costWeights?: CostWeights;
+  isCustomWeights?: boolean;
 }
 
 type MetricKey = "precision" | "recall" | "f1Score" | "businessCost";
 
-function ThresholdPerformanceChart({ model, selectedThreshold }: ThresholdPerformanceChartProps) {
+function ThresholdPerformanceChart({
+  model,
+  selectedThreshold,
+  costWeights,
+  isCustomWeights = false,
+}: ThresholdPerformanceChartProps) {
   const recommendations = model.recommendations;
   const chartData = model.thresholdCurve.map((point) => ({ ...point, businessCost: point.businessCost }));
   const targetKey = selectedThreshold.toFixed(4);
   const selectedMetrics =
     model.thresholdCurve.find((point) => point.threshold.toFixed(4) === targetKey) ?? model.thresholdCurve[0];
+  const maxF1Available = recommendations.maximumF1 && recommendations.maximumF1.isAvailable !== false;
 
   return (
     <section id="performance-curves" aria-labelledby="performance-curves-heading" className="border-b border-line bg-canvas-deep/45 px-5 py-10 sm:px-8 lg:px-10 lg:py-14">
@@ -27,11 +35,11 @@ function ThresholdPerformanceChart({ model, selectedThreshold }: ThresholdPerfor
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">06 / Performance curves</p>
           <h2 id="performance-curves-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">See the threshold path.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-            Explicit checkpoints show how precision, recall, F1-score and assumed business cost move across persisted operating points. The frozen evaluation policy (0.115) reflects external validation; remaining points represent internal policy selection comparisons.
+            All 201 plotted checkpoints show measured external validation results across the operating spectrum. The frozen candidate policy (0.115) was selected using internal out-of-fold (OOF) policy-selection evidence and subsequently evaluated on external validation.
           </p>
         </div>
         <Badge variant="signal">
-          <LineChartIcon aria-hidden="true" className="size-3" /> {model.modelName} / persisted curve
+          <LineChartIcon aria-hidden="true" className="size-3" /> {model.modelName} / 201 external validation checkpoints
         </Badge>
       </div>
       <div className="mt-8 grid gap-5 xl:grid-cols-2">
@@ -43,16 +51,22 @@ function ThresholdPerformanceChart({ model, selectedThreshold }: ThresholdPerfor
             selectedThreshold={selectedThreshold}
             defaultThreshold={model.defaultThreshold}
             minimumCostThreshold={recommendations.minimumCost.metrics.threshold}
-            maximumF1Threshold={recommendations.maximumF1.metrics.threshold}
+            maximumF1Threshold={maxF1Available ? recommendations.maximumF1.metrics.threshold : undefined}
             selectedValue={selectedMetrics ? selectedMetrics[metricKey] : 0}
+            costWeights={costWeights}
+            isCustomWeights={isCustomWeights}
           />
         ))}
       </div>
       <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
         <span><i className="mr-2 inline-block size-2 rounded-full bg-signal" />selected / {selectedThreshold.toFixed(3)}</span>
         <span><i className="mr-2 inline-block size-2 rounded-full bg-charcoal" />frozen evaluation / {model.defaultThreshold.toFixed(3)}</span>
-        <span><i className="mr-2 inline-block size-2 rounded-full bg-success" />min cost / {recommendations.minimumCost.metrics.threshold.toFixed(3)}</span>
-        <span><i className="mr-2 inline-block size-2 rounded-full bg-muted" />max F1 / {recommendations.maximumF1.metrics.threshold.toFixed(3)}</span>
+        <span><i className="mr-2 inline-block size-2 rounded-full bg-success" />min cost (external val) / {recommendations.minimumCost.metrics.threshold.toFixed(3)}</span>
+        {maxF1Available ? (
+          <span><i className="mr-2 inline-block size-2 rounded-full bg-muted" />max F1 (internal selection) / {recommendations.maximumF1.metrics.threshold.toFixed(3)}</span>
+        ) : (
+          <span><i className="mr-2 inline-block size-2 rounded-full bg-muted/40" />max F1 / unavailable</span>
+        )}
       </div>
     </section>
   );
@@ -66,21 +80,27 @@ function MetricChart({
   minimumCostThreshold,
   maximumF1Threshold,
   selectedValue,
+  costWeights,
+  isCustomWeights,
 }: {
   metricKey: MetricKey;
   data: Array<Record<string, number | string>>;
   selectedThreshold: number;
   defaultThreshold: number;
-  minimumCostThreshold: number;
-  maximumF1Threshold: number;
+  minimumCostThreshold?: number;
+  maximumF1Threshold?: number;
   selectedValue: number;
+  costWeights?: CostWeights;
+  isCustomWeights?: boolean;
 }) {
   const title = { precision: "Precision", recall: "Recall", f1Score: "F1-score", businessCost: "Business cost" }[metricKey];
   const description = {
-    precision: "Positive predictive value",
-    recall: "Failure detection rate",
-    f1Score: "Harmonic balance",
-    businessCost: "1 × FP + 10 × FN (illustrative)",
+    precision: "Positive predictive value (measured external validation)",
+    recall: "Failure detection rate (measured external validation)",
+    f1Score: "Harmonic balance (measured external validation)",
+    businessCost: costWeights
+      ? `${costWeights.falsePositive} × FP + ${costWeights.falseNegative} × FN${isCustomWeights ? " (active custom weights)" : " (illustrative baseline)"}`
+      : "1 × FP + 10 × FN (illustrative baseline)",
   }[metricKey];
   const formatValue = (value: number) => (metricKey === "businessCost" ? formatNumber(value) : formatPercent(value));
 
@@ -139,8 +159,12 @@ function MetricChart({
             />
             <ReferenceLine x={selectedThreshold} stroke="#E10600" strokeDasharray="4 4" label={{ value: "selected", fill: "#E10600", fontSize: 9, position: "top" }} />
             <ReferenceLine x={defaultThreshold} stroke="#C0C0C0" strokeDasharray="2 3" label={{ value: "frozen", fill: "#C0C0C0", fontSize: 9, position: "insideTopLeft" }} />
-            <ReferenceLine x={minimumCostThreshold} stroke="#63B37A" strokeDasharray="2 3" />
-            <ReferenceLine x={maximumF1Threshold} stroke="#787873" strokeDasharray="2 3" />
+            {minimumCostThreshold !== undefined ? (
+              <ReferenceLine x={minimumCostThreshold} stroke="#63B37A" strokeDasharray="2 3" />
+            ) : null}
+            {maximumF1Threshold !== undefined ? (
+              <ReferenceLine x={maximumF1Threshold} stroke="#787873" strokeDasharray="2 3" />
+            ) : null}
           </LineChart>
         </ResponsiveContainer>
       </div>

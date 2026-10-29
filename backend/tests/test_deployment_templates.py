@@ -59,6 +59,8 @@ def test_systemd_service_binds_to_localhost_and_single_worker() -> None:
     assert "User=ubuntu" in content
     assert "Group=ubuntu" in content
     assert "Restart=always" in content
+    assert "WorkingDirectory=/opt/aps-intelligence/current/backend" in content
+    assert "/opt/aps-intelligence/current/backend/.venv/bin/uvicorn" in content
 
 
 def test_pm2_ecosystem_does_not_contain_misleading_public_localhost() -> None:
@@ -69,3 +71,4 @@ def test_pm2_ecosystem_does_not_contain_misleading_public_localhost() -> None:
     assert "NEXT_PUBLIC_API_URL: 'http://127.0.0.1:8000'" not in content
     assert "INTERNAL_API_URL" in content
     assert "127.0.0.1" in content
+    assert "cwd: '/opt/aps-intelligence/current/frontend'" in content

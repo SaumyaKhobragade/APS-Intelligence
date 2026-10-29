@@ -17,15 +17,17 @@ Documentation=https://github.com/SaumyaKhobragade/APS-Intelligence
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/opt/aps-intelligence/backend
+WorkingDirectory=/opt/aps-intelligence/current/backend
 
 # Environment configuration
-Environment=PYTHONPATH=/opt/aps-intelligence/backend
+Environment=PYTHONPATH=/opt/aps-intelligence/current/backend
 Environment=ENVIRONMENT=production
-EnvironmentFile=/opt/aps-intelligence/backend/.env
+EnvironmentFile=/opt/aps-intelligence/current/backend/.env
 
-# Single worker architecture for consistent SQLite operations without concurrency contention
-ExecStart=/opt/aps-intelligence/backend/.venv/bin/uvicorn app.main:app \
+# Single worker architecture serializes request handling across worker processes.
+# Note: Within the single worker, async coroutines may execute concurrently;
+# SQLite busy handler (30s timeout) and short transactions handle concurrency safely.
+ExecStart=/opt/aps-intelligence/current/backend/.venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \

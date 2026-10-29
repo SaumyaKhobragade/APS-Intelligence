@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     prediction_model_cache_size: int = Field(default=8, ge=1, le=64)
     analytics_export_max_rows: int = Field(default=5000, ge=100, le=100_000)
     analytics_feature_page_max_size: int = Field(default=200, ge=1, le=1000)
+    max_dataset_upload_bytes: int = Field(default=52_428_800, ge=1)
     log_level: str = "INFO"
 
     @field_validator("api_prefix")

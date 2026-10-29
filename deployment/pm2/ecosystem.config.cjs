@@ -9,7 +9,7 @@
 //   - Never place secrets in NEXT_PUBLIC_* variables.
 //
 // Installation & Startup:
-//   1. Build Next.js: npm run build (inside /opt/aps-intelligence/frontend)
+//   1. Build Next.js: npm run build (inside /opt/aps-intelligence/current/frontend)
 //   2. Start with PM2: pm2 start ecosystem.config.cjs
 //   3. Save process list: pm2 save
 //   4. Setup startup hook: pm2 startup
@@ -19,7 +19,7 @@ module.exports = {
   apps: [
     {
       name: 'aps-frontend',
-      cwd: '/opt/aps-intelligence/frontend',
+      cwd: '/opt/aps-intelligence/current/frontend',
       script: 'node_modules/next/dist/bin/next',
       args: 'start -p 3000 -H 127.0.0.1',
       instances: 1,

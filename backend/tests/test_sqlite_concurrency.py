@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 import sys
+import threading
+import time
 
 import pytest
 from sqlalchemy import text
@@ -113,6 +115,119 @@ def test_concurrent_writes_serialize_successfully(sqlite_test_db) -> None:
     with session_factory() as session:
         total = session.query(DatasetMetadata).count()
         assert total == worker_count * records_per_worker
+
+
+def test_sqlite_controlled_lock_waiting_and_release(sqlite_test_db) -> None:
+    _, session_factory, db_file = sqlite_test_db
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+    worker_finished = threading.Event()
+    worker_error: list[Exception] = []
+
+    def locker_thread() -> None:
+        conn_a = sqlite3.connect(db_file.as_posix(), timeout=10.0, isolation_level=None)
+        try:
+            conn_a.execute("BEGIN EXCLUSIVE;")
+            lock_acquired.set()
+            release_lock.wait(timeout=5.0)
+            conn_a.execute("COMMIT;")
+        finally:
+            conn_a.close()
+
+    def writer_thread() -> None:
+        assert lock_acquired.wait(timeout=5.0)
+        # Connection B uses session_factory which inherits 30.0s busy timeout
+        try:
+            with session_factory() as session:
+                record = DatasetMetadata(
+                    dataset_id="rec-wait-1",
+                    dataset_name="Name",
+                    dataset_type="custom",
+                    source_file_name="f.csv",
+                    source_path="/p/f.csv",
+                    fingerprint="b" * 64,
+                    file_size_bytes=10,
+                    record_count=10,
+                    feature_count=1,
+                    status="ready",
+                )
+                session.add(record)
+                session.commit()
+        except Exception as exc:
+            worker_error.append(exc)
+        finally:
+            worker_finished.set()
+
+    t_lock = threading.Thread(target=locker_thread)
+    t_write = threading.Thread(target=writer_thread)
+
+    t_lock.start()
+    assert lock_acquired.wait(timeout=5.0)
+    t_write.start()
+
+    # Verify writer_thread blocks while lock is held
+    time.sleep(0.15)
+    assert not worker_finished.is_set(), "Connection B must wait while write lock is held"
+
+    # Signal Connection A to release lock
+    release_lock.set()
+    t_lock.join(timeout=5.0)
+    t_write.join(timeout=5.0)
+
+    assert worker_error == [], f"Worker encountered unexpected error: {worker_error}"
+    assert worker_finished.is_set()
+
+    # Verify write completed in DB
+    with session_factory() as session:
+        record = session.query(DatasetMetadata).filter_by(dataset_id="rec-wait-1").first()
+        assert record is not None
+
+
+def test_sqlite_busy_timeout_failure_when_lock_exceeds_timeout(sqlite_test_db) -> None:
+    _, _, db_file = sqlite_test_db
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+    worker_error: list[Exception] = []
+
+    def locker_thread() -> None:
+        conn_a = sqlite3.connect(db_file.as_posix(), timeout=10.0, isolation_level=None)
+        try:
+            conn_a.execute("BEGIN EXCLUSIVE;")
+            lock_acquired.set()
+            release_lock.wait(timeout=5.0)
+            conn_a.execute("COMMIT;")
+        finally:
+            conn_a.close()
+
+    def writer_thread() -> None:
+        assert lock_acquired.wait(timeout=5.0)
+        # Connection B configured with very short busy timeout (100ms)
+        conn_b = sqlite3.connect(db_file.as_posix(), timeout=0.1, isolation_level=None)
+        try:
+            conn_b.execute("BEGIN IMMEDIATE;")
+            conn_b.execute("COMMIT;")
+        except sqlite3.OperationalError as exc:
+            worker_error.append(exc)
+        finally:
+            conn_b.close()
+
+    t_lock = threading.Thread(target=locker_thread)
+    t_write = threading.Thread(target=writer_thread)
+
+    t_lock.start()
+    assert lock_acquired.wait(timeout=5.0)
+    t_write.start()
+
+    # Wait for writer_thread to timeout and fail
+    t_write.join(timeout=5.0)
+    # Release Connection A lock
+    release_lock.set()
+    t_lock.join(timeout=5.0)
+
+    assert len(worker_error) == 1
+    assert "locked" in str(worker_error[0]).lower(), f"Expected 'database is locked', got: {worker_error[0]}"
 
 
 def test_online_backup_with_active_database_connections(sqlite_test_db, tmp_path: Path) -> None:

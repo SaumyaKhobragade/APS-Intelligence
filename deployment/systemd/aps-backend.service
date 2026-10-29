@@ -22,11 +22,11 @@ WorkingDirectory=/opt/aps-intelligence/current/backend
 # Environment configuration
 Environment=PYTHONPATH=/opt/aps-intelligence/current/backend
 Environment=ENVIRONMENT=production
-EnvironmentFile=/opt/aps-intelligence/current/backend/.env
+EnvironmentFile=/var/data/aps-intelligence/config/backend.env
 
 # Single worker architecture serializes request handling across worker processes.
-# Note: Within the single worker, async coroutines may execute concurrently;
-# SQLite busy handler (30s timeout) and short transactions handle concurrency safely.
+# Note: SQLite permits only one active writer at a time. The 30-second busy timeout
+# allows concurrent coroutines to wait for lock release, but long locks can still timeout.
 ExecStart=/opt/aps-intelligence/current/backend/.venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port 8000 \

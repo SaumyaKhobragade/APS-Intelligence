@@ -21,6 +21,11 @@ neg,4,5,0
 pos,6,7,0
 """
 
+INVALID_HEADER_CSV = """id,val_a,val_b,val_c
+1,2,3,4
+5,6,7,8
+"""
+
 
 @pytest.fixture
 def upload_client(test_settings: Settings) -> Iterator[TestClient]:
@@ -157,3 +162,77 @@ def test_upload_cleans_up_on_streaming_error(upload_client: TestClient) -> None:
     # Confirm destination file was cleaned up
     leftovers = list(settings.raw_dataset_dir.glob(f"*{target_filename}"))
     assert leftovers == [], "Destination file must be removed when streaming aborts"
+
+
+def test_upload_cleans_up_temporary_file_on_registration_failure(upload_client: TestClient) -> None:
+    settings = upload_client.app.state.settings
+    target_filename = "invalid_schema.csv"
+
+    response = upload_client.post(
+        "/api/v1/datasets/import",
+        files={"file": (target_filename, INVALID_HEADER_CSV.encode("utf-8"), "text/csv")},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "dataset_validation_error"
+
+    # Temporary file written to disk must be unlinked when registration validation fails
+    leftover_files = list(settings.raw_dataset_dir.glob(f"*{target_filename}"))
+    assert leftover_files == [], "Temporary file must be deleted if registration validation fails"
+
+    # Ensure no database record was created
+    with upload_client.app.state.session_factory() as session:
+        record = session.query(DatasetMetadata).filter(DatasetMetadata.source_file_name.like(f"%{target_filename}%")).first()
+        assert record is None, "No metadata record should exist for failed registration"
+
+
+def test_upload_file_resource_closed_on_lifecycle_outcomes(upload_client: TestClient) -> None:
+    close_call_count = 0
+    original_close = starlette.datastructures.UploadFile.close
+
+    async def tracked_close(self):
+        nonlocal close_call_count
+        close_call_count += 1
+        return await original_close(self)
+
+    with patch.object(starlette.datastructures.UploadFile, "close", tracked_close):
+        # 1. Success case
+        resp = upload_client.post(
+            "/api/v1/datasets/import",
+            files={"file": ("close_test_success.csv", VALID_SMALL_CSV.encode("utf-8"), "text/csv")},
+        )
+        assert resp.status_code == 201
+        assert close_call_count >= 1
+        count_after_1 = close_call_count
+
+        # 2. Oversized payload (413) case
+        upload_client.app.state.settings.max_dataset_upload_bytes = 10
+        resp = upload_client.post(
+            "/api/v1/datasets/import",
+            files={"file": ("close_test_oversize.csv", VALID_SMALL_CSV.encode("utf-8"), "text/csv")},
+        )
+        assert resp.status_code == 413
+        assert close_call_count > count_after_1
+        count_after_2 = close_call_count
+
+        # 3. Registration error (400) case
+        upload_client.app.state.settings.max_dataset_upload_bytes = 52_428_800
+        resp = upload_client.post(
+            "/api/v1/datasets/import",
+            files={"file": ("close_test_invalid.csv", INVALID_HEADER_CSV.encode("utf-8"), "text/csv")},
+        )
+        assert resp.status_code == 400
+        assert close_call_count > count_after_2
+
+
+def test_upload_immutable_aps_reference_files_guard(upload_client: TestClient) -> None:
+    settings = upload_client.app.state.settings
+    # Attempting to import as 'training' or 'testing' must be rejected
+    resp = upload_client.post(
+        "/api/v1/datasets/import?dataset_type=training",
+        files={"file": ("training_overwrite.csv", VALID_SMALL_CSV.encode("utf-8"), "text/csv")},
+    )
+    assert resp.status_code == 400
+    assert "immutable" in resp.json()["error"]["message"]
+
+    leftovers = list(settings.raw_dataset_dir.glob("*training_overwrite.csv"))
+    assert leftovers == []

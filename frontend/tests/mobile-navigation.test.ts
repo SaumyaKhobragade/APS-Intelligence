@@ -66,7 +66,7 @@ describe("Mobile Navigation & Responsiveness (AUDIT-003)", () => {
         unavailableFields: [],
       },
       compatibility: "compatible",
-      compatibilityNote: "Phase 3 smoke run historical evidence",
+      compatibilityNote: "Historical training run evidence",
     },
   };
 
@@ -140,7 +140,7 @@ describe("Mobile Navigation & Responsiveness (AUDIT-003)", () => {
     expect(html).toContain("PDF report");
     // Verify record identifier and compatibility note
     expect(html).toContain("run-e5fbb875ddc44a0a97f2");
-    expect(html).toContain("Phase 3 smoke run historical evidence");
+    expect(html).toContain("Historical training run evidence");
   });
 
   it("renders export actions without historical badge for active records in ExperimentDetails", () => {

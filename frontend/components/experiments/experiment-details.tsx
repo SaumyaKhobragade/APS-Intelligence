@@ -36,7 +36,7 @@ function ExperimentDetails({ experiment, onExportJson, onExportCsv, onExportPdf 
       </div>
       <div className="mt-8 flex flex-wrap items-center gap-3">
         <Badge variant="signal">{experiment.id}</Badge>
-        <Badge variant="success">{historical ? `Historical ${experiment.phase ?? "evidence"}` : "Backend record"}</Badge>
+        <Badge variant="success">{historical ? "Historical evidence" : "Backend record"}</Badge>
         {experiment.candidateLabel ? <Badge variant="neutral">{experiment.candidateLabel}</Badge> : null}
         <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">{details.compatibilityNote}</span>
       </div>

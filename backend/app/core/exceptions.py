@@ -47,3 +47,10 @@ class ArtifactCompatibilityError(AppError):
 
     status_code = 409
     error_code = "artifact_incompatible"
+
+
+class PayloadTooLargeError(AppError):
+    """Raised when an uploaded request payload exceeds the allowed size limit."""
+
+    status_code = 413
+    error_code = "payload_too_large"

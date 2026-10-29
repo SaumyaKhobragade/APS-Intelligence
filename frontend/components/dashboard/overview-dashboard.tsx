@@ -29,7 +29,7 @@ function OverviewDashboard({ snapshot }: OverviewDashboardProps) {
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-signal">01 / Model evaluation overview</p>
             <h2 id="candidate-lifecycle-heading" className="mt-2 font-display text-2xl tracking-[-0.03em] text-ink sm:text-3xl">
-              Phase 9 Validation Candidate — CatBoost Native Imbalance
+              Validation Candidate — CatBoost Native Imbalance
             </h2>
             <p className="mt-2 text-xs leading-5 text-muted">
               Evaluated on frozen validation split with isotonic probability calibration (threshold {snapshot.candidateThreshold?.toFixed(3) ?? "0.115"}). Distinct from top uncalibrated historical run. Pending operational deployment signoff.

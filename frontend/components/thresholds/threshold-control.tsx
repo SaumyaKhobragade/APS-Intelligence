@@ -72,7 +72,7 @@ function ThresholdControl({
           <h2 id="threshold-control-heading" className="mt-3 font-display text-4xl leading-none tracking-[-0.035em] text-ink sm:text-5xl">Explore persisted checkpoints.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
             {isFrozenPolicy
-              ? "Displaying the frozen Phase 9 evaluation policy (threshold 0.115). Selected using internal out-of-fold (OOF) policy-selection evidence and measured on the 12,000-sample external validation partition."
+              ? "Displaying the frozen evaluation policy (threshold 0.115). Selected using internal out-of-fold (OOF) policy-selection evidence and measured on the 12,000-sample external validation partition."
               : activeCheckpoint
                 ? `Exploratory checkpoint active (threshold ${activeCheckpoint.threshold.toFixed(3)}). Metrics represent measured ${activeCheckpoint.scope === "validation" ? "external validation" : "internal policy selection"} results for this operating point without modifying the frozen evaluation policy.`
                 : `Selected threshold (${threshold.toFixed(3)}) does not correspond to an exact persisted checkpoint. Nearest-point fallback is disabled.`}

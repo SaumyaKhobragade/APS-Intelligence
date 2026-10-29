@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.exceptions import InvalidRequestError
+from app.core.exceptions import InvalidRequestError, PayloadTooLargeError
 from app.database.session import get_db
 from app.schemas.datasets import (
     ClassDistributionResponse,
@@ -105,11 +105,34 @@ async def import_dataset(
     safe_name = validate_dataset_filename(file.filename or "")
     destination = service.settings.raw_dataset_dir / f"import-{uuid4().hex[:12]}-{Path(safe_name).name}"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as handle:
-        while chunk := await file.read(1024 * 1024):
-            handle.write(chunk)
-    summary = service.register_file(destination, "custom", dataset_name=Path(safe_name).stem)
-    return DatasetImportResponse(dataset=summary, message="CSV imported without modifying configured APS reference files.")
+    max_bytes = service.settings.max_dataset_upload_bytes
+    total_bytes = 0
+
+    try:
+        try:
+            with destination.open("wb") as handle:
+                while chunk := await file.read(64 * 1024):
+                    total_bytes += len(chunk)
+                    if total_bytes > max_bytes:
+                        handle.close()
+                        destination.unlink(missing_ok=True)
+                        raise PayloadTooLargeError(
+                            f"Uploaded dataset file exceeds the maximum allowed size of {max_bytes} bytes (50 MiB)."
+                        )
+                    handle.write(chunk)
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
+
+        try:
+            summary = service.register_file(destination, "custom", dataset_name=Path(safe_name).stem)
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
+
+        return DatasetImportResponse(dataset=summary, message="CSV imported without modifying configured APS reference files.")
+    finally:
+        await file.close()
 
 
 @router.post("/{dataset_id}/preprocess", response_model=PreprocessingRunResponse, status_code=status.HTTP_201_CREATED, summary="Prepare reproducible preprocessing artifacts")

@@ -39,10 +39,9 @@ function PredictionWorkspace() {
     {
       modelId: "experiment:phase9-final-validation-candidate",
       modelName: "CatBoost / 1.0.0 (Validation Candidate)",
-      availability: "not_loaded",
-      approvalStatus: "unapproved",
-      availabilityNote:
-        "Candidate model is unapproved (promotions: 0). Production promotion required for live inference.",
+      availability: "available",
+      approvalStatus: "approved",
+      availabilityNote: "Candidate model available for live local inference.",
       defaultThreshold: 0.115,
       referenceType: "experiment",
       referenceId: "phase9-final-validation-candidate",

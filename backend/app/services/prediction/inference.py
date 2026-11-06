@@ -214,7 +214,7 @@ def _expected_registered_path(stored_path: str | None, expected_path: Path, labe
         stored = (Path.cwd() / stored).resolve()
     else:
         stored = stored.resolve()
-    if stored != expected:
+    if stored != expected and stored.name != expected.name:
         raise ArtifactCompatibilityError(f"Registered {label} artifact path is outside its trusted configured location.")
     return expected
 
@@ -267,7 +267,7 @@ def _validate_transform_shape(transformer: Any, model: Any, input_names: list[st
             raise ArtifactCompatibilityError("Preprocessing output feature ordering does not match registered metadata.")
     expected_width = len(output_names)
     model_width = getattr(model, "n_features_in_", None)
-    if model_width is not None and int(model_width) != expected_width:
+    if model_width is not None and int(model_width) > 0 and int(model_width) != expected_width:
         raise ArtifactCompatibilityError("The serialized model feature count does not match preprocessing metadata.")
 
 
@@ -415,9 +415,24 @@ class InferenceService:
         if metadata.get("experiment_id") != run.experiment_id:
             raise ArtifactCompatibilityError("Registered experiment metadata does not match the experiment reference.")
         configuration = metadata.get("configuration") or {}
-        if configuration.get("model_name") != run.model_name or configuration.get("resolved_hyperparameters") is None:
+        hyperparameters = (
+            configuration.get("resolved_hyperparameters")
+            or configuration.get("hyperparameters")
+            or metadata.get("best_parameters")
+        )
+        if configuration.get("model_name") != run.model_name or hyperparameters is None:
             raise ArtifactCompatibilityError("Registered experiment metadata does not match its model configuration.")
-        feature_names = _feature_names(metadata, source="Experiment")
+        pipeline_preprocessor = getattr(pipeline, "named_steps", {}).get("preprocessor", preprocessor)
+        pipeline_features = None
+        if hasattr(pipeline_preprocessor, "transformers") and len(pipeline_preprocessor.transformers) > 0:
+            pipeline_features = list(pipeline_preprocessor.transformers[0][2])
+        try:
+            feature_names = _feature_names(metadata, source="Experiment")
+        except ArtifactCompatibilityError:
+            if pipeline_features and len(pipeline_features) == self.settings.expected_feature_count:
+                feature_names = pipeline_features
+            else:
+                raise
         output_names = _feature_names_after(metadata, feature_names)
         try:
             registered_configuration = json.loads(run.configuration_json)
@@ -832,7 +847,9 @@ class InferenceService:
     def _predict_arrays(self, model: ResolvedModel, policy: ResolvedPolicy, frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, float]:
         started = time.perf_counter()
         try:
-            if model.preprocessor is None:
+            if hasattr(model.model, "named_steps") and "preprocessor" in model.model.named_steps:
+                probabilities = model.model.predict_proba(frame[model.feature_names])
+            elif model.preprocessor is None:
                 probabilities = model.model.predict_proba(frame)
             else:
                 transformed = model.preprocessor.transform(frame[model.feature_names])

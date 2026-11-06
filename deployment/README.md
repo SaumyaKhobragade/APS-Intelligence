@@ -34,7 +34,7 @@ The production deployment runs on a single AWS EC2 instance (recommended: `t3.la
 3. **Stable Shared Configuration**: Production configuration files reside in a stable location (`/var/data/aps-intelligence/config/`) outside versioned releases, secured with `chmod 600`. Releases never bundle secret credentials.
 4. **Same-Origin API Strategy**: In production, the browser communicates through same-origin relative `/api/v1` routes proxied by Nginx. The browser never accesses `127.0.0.1` directly.
 5. **Defense-in-Depth CORS**: In production, CORS strictly forbids wildcard `*` origins and requires explicit allowed domains.
-6. **Preserved ML Evidence**: Phase 9 candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic calibration) and Phase 10 official-test evaluation evidence remain strictly read-only.
+6. **Preserved ML Evidence**: Validation benchmark candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic calibration) and official-test benchmark evaluation evidence remain strictly read-only.
 7. **Strict Upload Enforcement**: Backend enforces a maximum dataset upload limit of 50 MiB (52,428,800 bytes) via streaming 64 KiB chunk byte counting. Partially written files are unlinked on limit violations, client disconnects, write failures, or registration validation errors. Incoming `UploadFile` resources are explicitly closed in all execution paths.
 8. **Versioned Releases with Atomic Symlink Activation**: Application releases reside under `/opt/aps-intelligence/releases/release-<id>`, activated via a same-filesystem atomic rename (`mv -Tf current.tmp current`). Symlink switching combined with service restart yields near-zero downtime.
 
@@ -149,11 +149,11 @@ When bootstrapping a fresh instance or fresh clone, components require different
 | `/var/data/aps-intelligence/config/backend.env` | Operator-provisioned | **Yes** | **Yes** | **Yes** | Backend Service | Permissions `chmod 600`. Contains DB path, CORS origins, limits. |
 | `/var/data/aps-intelligence/config/frontend.env` | Operator-provisioned | **Yes** | **Yes** | **Yes** | Frontend PM2 Process | Permissions `chmod 600`. Contains runtime internal loopback URL. |
 | `/var/data/aps-intelligence/data/aps_intelligence.db` | Created via `alembic upgrade head` | **Yes** | **Yes** | **Yes** | Core API, Dataset Explorer, Audit Logs, Settings | Primary transactional database. Bootstrapped from empty schema via Alembic. |
-| `/var/data/aps-intelligence/data/aps_intelligence_phase3_smoke.db` | Pre-trained run artifact | No | **Yes** | No | Experiment History, Historical Comparison | Phase 3 baseline evaluation history. |
-| `/var/data/aps-intelligence/data/aps_intelligence_phase4_smoke.db` | Pre-trained run artifact | No | **Yes** | No | Experiment History, Historical Comparison | Phase 4 model run comparison history. |
-| `/var/data/aps-intelligence/data/aps_intelligence_phase9_validation.db` | Pre-trained run artifact | No | **Yes** | No | Model Comparison, Dashboard Validation Metrics | Phase 9 frozen validation split evidence database. |
+| `/var/data/aps-intelligence/data/aps_intelligence_phase3_smoke.db` | Pre-trained run artifact | No | **Yes** | No | Experiment History, Historical Comparison | Baseline model evaluation history. |
+| `/var/data/aps-intelligence/data/aps_intelligence_phase4_smoke.db` | Pre-trained run artifact | No | **Yes** | No | Experiment History, Historical Comparison | Comparative model run experiment history. |
+| `/var/data/aps-intelligence/data/aps_intelligence_phase9_validation.db` | Pre-trained run artifact | No | **Yes** | No | Model Comparison, Dashboard Validation Metrics | Frozen validation split benchmark evidence database. |
 | `/var/data/aps-intelligence/artifacts/phase9/` | Pre-computed evaluation reports | No | **Yes** | No | Dashboard Candidate Card, Threshold Analysis | Candidate run metrics, isotonic calibration parameters, and threshold analysis. |
-| `/var/data/aps-intelligence/artifacts/phase10/` | Pre-computed evaluation reports | No | **Yes** | No | Model Comparison Official-Test Tab | Phase 10 frozen official test set evaluation evidence. Strictly read-only. |
+| `/var/data/aps-intelligence/artifacts/phase10/` | Pre-computed evaluation reports | No | **Yes** | No | Model Comparison Official-Test Tab | Frozen official test set benchmark evaluation evidence. Strictly read-only. |
 | `/var/data/aps-intelligence/artifacts/models/*.joblib` | Model training output | No | No | **Yes** | Real-time Inference API (`/api/v1/predictions`) | Serialized model pipelines. Inference is currently gated/pending operational signoff. |
 | `/var/data/aps-intelligence/datasets/raw/` | User upload / Reference data | No | No | No | Dataset Explorer Uploads | Destination directory for streamed CSV uploads. Preserves reference APS sets. |
 
@@ -354,4 +354,4 @@ If a health check fails or an issue is detected post-deployment:
 5. **Post-Rollback Verification**:
    - Check health endpoint: `curl http://127.0.0.1:8000/api/v1/health?verbose=true`.
    - Verify frontend loads: `curl -I http://127.0.0.1:3000/`.
-   - Verify Phase 9 candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic) and Phase 10 test evidence remain intact.
+   - Verify validation benchmark candidate (`phase9-final-validation-candidate`, threshold `0.115`, isotonic) and official test benchmark evidence remain intact.
